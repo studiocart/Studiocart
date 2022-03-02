@@ -1,0 +1,9 @@
+/*.interface-interface-skeleton__sidebar .components-base-control {
+    padding: 0px 15px 0px 15px;
+}*/
+.sc_order_form_section {
+    background: #f3f3f4;
+    padding: 5%;
+    text-align: center;
+}
+.sc_gutenberg_product_setting{display:none;}

@@ -1,0 +1,7 @@
+{
+    "require": {
+        "stripe/stripe-php": "^7.52",
+        "drewm/mailchimp-api": "^2.5",
+        "activecampaign/api-php": "2.0.3"
+    }
+}
