@@ -31,8 +31,11 @@ class NCS_Cart_Upgrade {
 	 */
 	public static function upgrade() {
         
+        do_action('studiocart_upgrade');
+        
+        flush_rewrite_rules();
         self::setup_tax_table();
-
+		self::add_cap();
 	}
 
 	public static function setup_tax_table(){
@@ -56,4 +59,56 @@ class NCS_Cart_Upgrade {
 		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
 		dbDelta( $sql );
 	}
+
+	public static function compile_post_type_capabilities($singular = 'post', $plural = 'posts') {
+        //var_dump($singular);
+
+        return [
+            'edit_post'		 => "edit_$singular",
+            'read_post'		 => "read_$singular",
+            'delete_post'		 => "delete_$singular",
+            'edit_posts'		 => "edit_$plural",
+            'edit_others_posts'	 => "edit_others_$plural",
+            'publish_posts'		 => "publish_$plural",
+            'read_private_posts'	 => "read_private_$plural",
+            'read'                   => "read",
+            'delete_posts'           => "delete_$plural",
+            'delete_private_posts'   => "delete_private_$plural",
+            'delete_published_posts' => "delete_published_$plural",
+            'delete_others_posts'    => "delete_others_$plural",
+            'edit_private_posts'     => "edit_private_$plural",
+            'edit_published_posts'   => "edit_published_$plural",
+            'create_posts'           => "edit_$plural",
+        ];
+    }
+
+	/**
+     * Adding new capability in the plugin
+     */
+    public static function add_cap()
+    {
+        $editor_role = get_role('editor');
+        $sc_manager_role = add_role( 'sc_cart_manager', 'Cart Manager', $editor_role->capabilities );
+        if(!$sc_manager_role){
+            $sc_manager_role = get_role('sc_cart_manager');
+        }
+        // Get administrator role
+        $role = get_role('administrator');
+        
+        $post_type = array('sc_product'=>'sc_products',
+                        'sc_order'=>'sc_orders',
+                        'sc_subscription'=>'sc_subscriptions',
+                        'sc_us_path'=>'sc_us_paths'
+                    );
+        foreach($post_type as $key => $post_data){
+            $sc_product_capabilities = self::compile_post_type_capabilities($key, $post_data);
+            foreach($sc_product_capabilities as $cap){
+                $role->add_cap($cap);
+                $sc_manager_role->add_cap($cap);
+            }
+        }
+        $role->add_cap('sc_manager_option');
+        $sc_manager_role->add_cap('sc_manager_option');
+        add_role( 'sc_cart_administrator', 'Cart Administrator', $role->capabilities );
+    }
 }

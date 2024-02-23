@@ -227,24 +227,6 @@ class NCS_Cart_Tax {
         return $custom_tax_rate;
     }
 
-    public static function get_selected_tax_rate($item_tax_rate){
-        $tax_rate = get_option( '_sc_tax_rates', array() );
-        if ( ! empty( $tax_rate ) ) {
-            $fields = array('_sc_tax_rate_title','_sc_tax_rate_slug','_sc_tax_rate','_sc_stripe_tax_rate');
-            $count = count($tax_rate['_sc_tax_rate_slug']);
-            for($i=0;$i<$count;$i++){
-                if($tax_rate['_sc_tax_rate_slug'][$i]==$item_tax_rate){
-                    $inner_val = array();
-                    foreach($fields as $field):
-                        $field_title = str_replace('_sc_','',$field);
-                        $inner_val[$field_title] = $tax_rate[$field][$i]??'';
-                    endforeach;
-                }
-            }
-            return $inner_val;
-        }
-    }
-
 	public static function ncs_get_tax_meta($tax_rate_id,$key)
 	{
 		global $wpdb;
@@ -317,6 +299,7 @@ class NCS_Cart_Tax {
 	}
 
 	public static function get_order_tax_data($order){
+		$tax_rate = array();
 		if (!isset($order->is_taxable)) {
             $order->is_taxable = 'tax';
         }
@@ -327,7 +310,7 @@ class NCS_Cart_Tax {
 				return $vat_data;
 			}
 			$order->tax_type = 'tax';
-			$country = $order->country??'';
+			$country = $order->country??get_option('_sc_vat_merchant_state',"");
 			$state = $order->state??'';
 			$postcode = $order->zip??'';
 			$city = $order->city??'';
@@ -337,6 +320,12 @@ class NCS_Cart_Tax {
 								'title' =>	$tax->title,
 								'stripe_tax_rate' =>	self::ncs_get_tax_meta($tax->id,'stripe_tax_id'),
 				);
+			} elseif(get_option('_sc_vat_enable',false) && empty($order->country)){ 
+				$merchant_country = get_option('_sc_vat_merchant_state');
+				$vat_data = NCS_Cart_Tax::get_country_vat_rates($merchant_country, $postcode);
+				$vat_data->redeem_vat = true;
+				$order->tax_type = 'vat';
+				return $vat_data;
 			}
 		}
 		return (object)$tax_rate;
@@ -344,37 +333,99 @@ class NCS_Cart_Tax {
 
 	public static function get_order_vat_data($order) {
 		$vat_data = array();
-		if($order->is_taxable=='tax' && get_option('_sc_vat_enable',false) && !empty($order->country)){
-			$country = $order->country;
-			$apply_vat = true;
+		$country = $order->country??get_option('_sc_vat_merchant_state',"");
+		$zip = $order->zip ?? '';
+		
+		if($order->is_taxable=='tax' && get_option('_sc_vat_enable',false) && !empty($country) ){
+			$redeem_vat = false;
 			if(!empty($order->vat_number)){
-				$client = new SoapClient("http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl");
-				try{
-					$vat_data = $client->checkVat(array(
-						'countryCode' => $country,
-						'vatNumber' => $order->vat_number
-					));
-					$is_valid = $vat_data->valid;
-				} catch(Exception $e) {
-					$is_valid = false;
+				if(!get_option('_sc_vat_disable_vies_database_lookup',false)){
+					
+                    $vat_number = $order->vat_number;
+                    
+					// Strip VAT Number of country code, spaces and periods
+                    if (ctype_alpha(substr($vat_number, 0, 2))) $vat_number = substr($vat_number, 2);
+                    $vat_number = str_replace(" ", "", $vat_number);
+                    $vat_number = str_replace(".", "", $vat_number);
+                    if($country == "GB"){
+						$curl = curl_init();
+	
+						curl_setopt_array($curl, array(
+							CURLOPT_URL => 'https://api.service.hmrc.gov.uk/organisations/vat/check-vat-number/lookup/'.$vat_number,
+							CURLOPT_RETURNTRANSFER => true,
+							CURLOPT_ENCODING => '',
+							CURLOPT_MAXREDIRS => 10,
+							CURLOPT_TIMEOUT => 0,
+							CURLOPT_FOLLOWLOCATION => true,
+							CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+							CURLOPT_CUSTOMREQUEST => 'GET',
+							CURLOPT_HTTPHEADER => array(
+								'Accept: application/vnd.hmrc.1.0+json'
+							),
+						));
+	
+						$response = curl_exec($curl);
+						if($response == false){
+							$is_valid = false;
+						} else {
+							$vat_data = json_decode($response);
+							if($vat_data->target){
+								$is_valid = true;
+							} else {
+								$is_valid = false;
+							}
+						}
+						curl_close($curl);
+					} else {
+						$client = new SoapClient("http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl");
+						try{
+							$vat_data = $client->checkVat(array(
+								'countryCode' => $country,
+								'vatNumber' => $vat_number
+							));
+							$is_valid = $vat_data->valid;
+						} catch(Exception $e) {
+							$is_valid = false;
+						}
+					}
 				}
 				if(!get_option('_sc_vat_all_eu_businesses',false) 
 					&& $country!=get_option('_sc_vat_merchant_state',false)){
 						if($is_valid){
-							$apply_vat = false;
+							$redeem_vat = true;
 						}
 				}
 			} 
-			if($apply_vat){
-				$vat_data = self::get_country_vat_rates($country);
+            $vat_data = self::get_country_vat_rates($country, $zip);
+			if($vat_data){
+                $vat_data->redeem_vat = $redeem_vat;
+				$vat_data->title = __($vat_data->title,"ncs-cart");
 			}
 		}
 		return $vat_data;
 	}
 
-	public static function get_country_vat_rates($country){
+
+	public static function excluded_location($country, $zip) {
+		// Canary Islands
+		if($country == 'ES' && $zip) {
+			$zip = (string) $zip;
+			switch($zip){
+				case str_starts_with($zip, '35'): 
+				case str_starts_with($zip, '38'): 
+				case str_starts_with($zip, '51'): 
+				case str_starts_with($zip, '52'): 
+					return true;
+				default:
+					return false;
+			}
+		}
+		return false;
+	}
+
+	public static function get_country_vat_rates($country, $zip){
 		global $NCS_Cart_Admin_Tax;
-		if(!get_option('_sc_vat_enable',false)){
+		if(!get_option('_sc_vat_enable',false) || self::excluded_location($country, $zip)){
 			return array();
 		}
 		$vat_rates = get_option('_sc_vat_rates',array());
@@ -383,8 +434,10 @@ class NCS_Cart_Tax {
 		if(isset($vat_rates['vat_'.$country]) && isset($vat_rates['vat_'.$country]->rate) && $vat_rates['vat_'.$country]->last_update>strtotime('-60 days')){
 			if(empty($vat_rates['vat_'.$country]->stripe_tax_rate)){
 				$vat_rates['vat_'.$country]->stripe_tax_rate = $NCS_Cart_Admin_Tax->create_stripe_vat($vat_rates['vat_'.$country]->rate,$countries,$country);
-				update_option( '_sc_vat_rates', $vat_rates );
+			} else {
+				$vat_rates['vat_'.$country]->stripe_tax_rate = $NCS_Cart_Admin_Tax->check_create_stripe_vat($vat_rates['vat_'.$country]->stripe_tax_rate,$vat_rates['vat_'.$country]->rate,$countries,$country);
 			}
+			update_option( '_sc_vat_rates', $vat_rates );
 			return $vat_rates['vat_'.$country];
 		} else {
 			$curl = curl_init();
@@ -420,11 +473,12 @@ class NCS_Cart_Tax {
 						$vat_rates['vat_'.$country]->last_update = time();
 						if(empty($vat_rates['vat_'.$country]->stripe_tax_rate)){
 							$vat_rates['vat_'.$country]->stripe_tax_rate = $NCS_Cart_Admin_Tax->create_stripe_vat($vat_rate,$countries,$country);
+						} else {
+							$vat_rates['vat_'.$country]->stripe_tax_rate = $NCS_Cart_Admin_Tax->check_create_stripe_vat($vat_rates['vat_'.$country]->stripe_tax_rate,$vat_rate,$countries,$country);
 						}
 						update_option( '_sc_vat_rates', $vat_rates );
 						return $vat_rates['vat_'.$country];
 					} else {
-						global $sc_stripe;
 						$vat_data = array(	'title'=>__('VAT',"ncs-cart"), 
 											'rate'=>$vat_rate,
 											'vat_country'=>array('name'=>$countries[$country],'code'=>$country),

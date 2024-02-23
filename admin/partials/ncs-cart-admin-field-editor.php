@@ -12,6 +12,14 @@
 
 // wp_editor( $content, $editor_id, $settings = array() );
 
+$default_atts = array(  'value'		=>	'',
+						'show_tags' =>	false);
+
+$atts = wp_parse_args($atts,$default_atts);
+
+$atts['settings'] = $atts['settings'] ?? array();
+$atts['settings']['textarea_name'] = $atts['name'];
+
 if ( ! empty( $atts['label'] ) ) {
 
 	?><label for="<?php
@@ -22,10 +30,19 @@ if ( ! empty( $atts['label'] ) ) {
 
 		esc_html_e( $atts['label'], 'ncs-cart' );
 
-	?>: </label><?php
+	?>: 
+    
+    <?php if (! empty($atts['description'])): ?>
+    <span class="description"><?php echo wp_specialchars_decode( $atts['description'], 'ENT_QUOTES' ); ?></span>
+    <?php endif; ?>
+    
+    </label><?php
 
 }
-//print_r($atts); 
-wp_editor( html_entity_decode( $atts['value'] ), 'sc-'.$atts['id'], array('textarea_name' => 'sc-'.$atts['name']) );
+wp_editor( html_entity_decode( $atts['value'] ), 'sc-'.$atts['id'], $atts['settings'] );
 
-?><span class="description"><?php esc_html_e( $atts['description'], 'ncs-cart' ); ?></span>
+?>
+    
+<?php if($atts['show_tags']) { 
+    sc_merge_tag_select(); 
+} ?>

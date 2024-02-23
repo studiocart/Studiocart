@@ -9,7 +9,8 @@ require_once plugin_dir_path( __FILE__ ) . 'template-functions.php';
 global $scp;
 
 $prod_id		= $scp->ID;
-if(get_post_type($prod_id)!='sc_product') {
+$post_types = (array) apply_filters('sc_product_post_type', 'sc_product');
+if(!in_array(get_post_type($prod_id), $post_types)) {
     return;
 }
 $cart_closed 	= sc_is_cart_closed();
@@ -21,7 +22,7 @@ $orderID        = ($method_change) ? $_GET['sc-method-change'] : false;
 $hide_labels    = isset($scp->hide_labels);
     
 if (isset($scp->show_optin)) {
-    unset($scp->upsell,$scp->downsell,$scp->order_bump,$scp->order_bump_options,$scp->show_coupon_field);
+    unset($scp->upsell_path,$scp->order_bump,$scp->order_bump_options,$scp->show_coupon_field);
 }
 
 add_action('sc_payment_method_change', 'sc_do_payment_method_change', 10);
@@ -30,14 +31,14 @@ add_action('sc_payment_confirmation', 'sc_do_payment_confirmation', 10);
 add_action('sc_checkout_page_heading', 'sc_do_error_messages', 15);
 add_action('sc_checkout_form_scripts', 'sc_do_checkout_form_scripts', 10, 2);
 
-add_action('sc_checkout_form', 'sc_do_checkout_form', 10, 2);
+add_action('sc_checkout_form', 'sc_do_checkout_form', 10, 3);
 add_action('sc_card_details_fields', 'sc_do_card_details_fields', 10, 2); 
 add_action('sc_before_payment_info', 'sc_do_test_mode_message', 10);
 add_action('sc_order_summary', 'sc_do_order_summary', 10);
 
 if (!isset($scp->show_2_step)) {
     add_action('sc_checkout_form_open', 'sc_do_checkout_form_open', 10);
-    add_action('sc_card_details_fields', 'sc_payment_plan_options', 1); 
+    add_action('sc_card_details_fields', 'sc_payment_plan_options', 1, 3); 
     add_action('sc_card_details_fields', 'sc_do_checkoutform_fields', 5, 2); 
     add_action('sc_checkout_form_close', 'sc_do_checkout_form_close', 10);
 
@@ -55,7 +56,7 @@ if (!isset($scp->show_2_step)) {
     }
 
     add_action('sc_card_details_fields', 'sc_step_wrappers_2', 1); 
-    add_action('sc_card_details_fields', 'sc_payment_plan_options', 5); 
+    add_action('sc_card_details_fields', 'sc_payment_plan_options', 5, 3); 
     add_action('sc_checkout_form_close', 'sc_step_wrappers_3', 5); 
     add_action('sc_checkout_form_close', 'sc_do_checkout_form_close', 10);
 }
@@ -74,16 +75,22 @@ if (!isset($scp->show_2_step)) {
         <style type="text/css">
             .studiocart .btn-block,
             .studiocart input[type="button"],
-            body.single-sc_product .container .sc-embed-checkout-form-nav .sc-checkout-form-steps .steps.sc-current a .step-number {
+            body.single-sc_product .studiocart-page .container .sc-embed-checkout-form-nav .sc-checkout-form-steps .steps.sc-current a .step-number {
                 background-color: <?php echo $scp->button_color; ?>
             }
             
             <?php
             $show_bump = isset($scp->order_bump_options);
-            $show_bump = apply_filters( 'sc_show_orderbump', $show_bump, $post_id );
-            if ($show_bump) {
+            $show_bump = apply_filters( 'sc_show_orderbump', $show_bump, $scp->ID );
+            if ($show_bump || isset($scp->bump_bg_color)) {
+				if(isset($scp->bump_bg_color)): ?>
+					.studiocart-page .container #sc-payment-form #sc-orderbump-main {
+                    	background-color: <?php echo $scp->bump_bg_color; ?>
+                    }
+				<?php endif;
+				
                 for ($k=0;$k<count($scp->order_bump_options);$k++){
-                    if($scp->order_bump_options[$k]['bump_bg_color']) { ?>
+                    if(isset($scp->order_bump_options[$k]['bump_bg_color']) && $scp->order_bump_options[$k]['bump_bg_color']) { ?>
                         .studiocart-page .container #sc-payment-form #sc-orderbump-<?php echo $k; ?>.sc-section.orderbump {
                             background-color: <?php echo $scp->order_bump_options[$k]['bump_bg_color']; ?>
                         }

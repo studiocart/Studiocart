@@ -56,9 +56,7 @@ function studiocart_default_fields_filter( $fields, $scp )
                     $field['required'] = isset( $scp->default_fields[$k]['default_field_required'] );
                     $field['cols'] = $scp->default_fields[$k]['default_field_size'];
                     if ( $k == 'state' ) {
-                        $field['choices'] = array(
-                            '' => $field['label'],
-                        );
+                        $field['choices'][''] = $field['label'];
                     }
                     $new_fields[$k] = $field;
                 }
@@ -141,8 +139,8 @@ if ( !function_exists( 'sc_add_remove_activecampaign_subscriber' ) ) {
                             // order data
                         } else {
                             
-                            if ( $v && preg_match( '/^"([^ ].*[^ ])"$/', html_entity_decode( $v ), $val ) ) {
-                                $map[$k] = $val[1];
+                            if ( $v && preg_match( '/"([^"]+)"/', html_entity_decode( $v ), $val ) ) {
+                                $map[$k] = trim( $val[1] );
                                 // static value
                             } else {
                                 
@@ -215,48 +213,6 @@ if ( !function_exists( 'sc_add_remove_activecampaign_subscriber' ) ) {
             //echo $e->getMessage(); //add custom message
             return;
         }
-        return;
-    }
-
-}
-if ( !function_exists( 'sc_add_remove_kajabi_subscriber' ) ) {
-    function sc_add_remove_kajabi_subscriber(
-        $order_id,
-        $service_id,
-        $action_name,
-        $kajabi_email_confirmation,
-        $kajabi_url,
-        $email,
-        $phone,
-        $fname,
-        $lname
-    )
-    {
-        global  $wpdb ;
-        if ( empty($service_id) || empty($email) || empty($kajabi_url) ) {
-            return;
-        }
-        $kajabi_add = array(
-            'email'            => $email,
-            'name'             => $fname . ' ' . $lname,
-            'external_user_id' => $email,
-        );
-        $url = esc_url_raw( $kajabi_url );
-        if ( !empty($kajabi_email_confirmation) ) {
-            $url .= '?send_offer_grant_email=true';
-        }
-        $request = wp_remote_post( $url, array(
-            'method'      => 'POST',
-            'body'        => json_encode( $kajabi_add ),
-            'timeout'     => 0,
-            'sslverify'   => false,
-            'redirection' => 10,
-            'httpversion' => '1.0',
-            'headers'     => array(
-            'Content-Type' => 'application/json',
-        ),
-        ) );
-        sc_log_entry( $order_id, __( ' Kajabi webhook response: ', 'ncs-cart' ) . $request['body'] );
         return;
     }
 
@@ -350,7 +306,9 @@ if ( !function_exists( 'sc_add_remove_mailpoet_subscriber' ) ) {
                     $mailpoet_api->addSubscriber( $subscriber, $mailpoet_lists );
                 } else {
                     // In case subscriber exists just add him to new lists
-                    $mailpoet_api->subscribeToLists( $subscriber['email'], $mailpoet_lists );
+                    $mailpoet_api->subscribeToLists( $subscriber['email'], $mailpoet_lists, array(
+                        'send_confirmation_email' => false,
+                    ) );
                 }
                 
                 $msg = __( 'Contact successfully added to MailPoet list ID: ', 'ncs-cart' ) . $mailpoet_list;
@@ -511,7 +469,7 @@ function sc_get_subscription_txn_id( $order_id, $subsription = false )
         $order_id
     );
     if ( $txnid ) {
-        update_post_meta( $order_id, '_sc_subscription_id', $arr['subscription_id'] );
+        update_post_meta( $order_id, '_sc_subscription_id', $txnid );
     }
     return $txnid;
 }
@@ -556,12 +514,11 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
                     'first_name'          => $first_name,
                     'display_name'        => $first_name . ' ' . $last_name,
                     'Levels'              => array( array( $wlm_level, $txnid ) ),
-                    'SendMail'            => $SendMail,
-                    'SendMailPerLevel'    => array( $wlm_level ),
+                    'SendMail'            => false,
+                    'SendMailPerLevel'    => array(),
                     'wpm_registration_ip' => get_post_meta( $order_id, '_sc_ip_address', true ),
                     'custom_sc_order_id'  => $order_id,
                 );
-                
                 if ( $SendMail ) {
                     
                     if ( $SendMail == 'level' ) {
@@ -570,10 +527,7 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
                         $args['SendMail'] = true;
                     }
                 
-                } else {
-                    $args['SendMail'] = false;
                 }
-                
                 // add custom fields
                 $custom_fields = get_post_meta( $order_id, '_sc_custom_fields', true );
                 if ( $custom_fields ) {
@@ -591,7 +545,7 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
                     'country'
                 );
                 foreach ( $address_fields as $info ) {
-                    $val = get_post_meta( $order, '_sc_' . $info, true );
+                    $val = get_post_meta( $order_id, '_sc_' . $info, true );
                     if ( $val ) {
                         $args[$info] = $val;
                     }
@@ -600,6 +554,16 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
                 $user_id = $member['member'][0]['ID'];
                 sc_maybe_auto_login_user( $user_id, $order_id );
                 update_post_meta( $order_id, '_sc_user_account', $user_id );
+                $sub_id = false;
+                
+                if ( get_post_type( $order_id ) == 'sc_order' ) {
+                    $sub_id = get_post_meta( $order_id, '_sc_subscription', true );
+                    // add user to subscription if exists
+                    if ( $sub_id ) {
+                        update_post_meta( $sub_id, '_sc_user_account', $user_id );
+                    }
+                }
+                
                 $msg = __( 'Contact created and successfully added to Wishlist Level ID: ', 'ncs-cart' ) . $wlm_level;
             } else {
                 $args = array(
@@ -641,11 +605,22 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
                 
                 if ( $user_id && $wlm_action == 'cancel' ) {
                     $args = array(
-                        'Users'     => array( $user_id ),
-                        'Cancelled' => true,
+                        'Users'            => array( $user_id ),
+                        'Cancelled'        => true,
+                        'SendMail'         => false,
+                        'SendMailPerLevel' => array(),
                     );
+                    if ( $SendMail ) {
+                        
+                        if ( $SendMail == 'level' ) {
+                            $args['SendMailPerLevel'] = array( $wlm_level );
+                        } else {
+                            $args['SendMail'] = true;
+                        }
+                    
+                    }
                     $members = wlmapi_add_member_to_level( $wlm_level, $args );
-                    $msg = __( 'Contact successfully cancelled from Wishlist Level ID: ', 'ncs-cart' ) . $wlm_level;
+                    $msg = __( 'Contact successfully canceled from Wishlist Level ID: ', 'ncs-cart' ) . $wlm_level;
                 }
             
             }
@@ -657,45 +632,20 @@ if ( !function_exists( 'sc_add_remove_wlmember_to_level' ) ) {
     }
 
 }
+// removing action to prevent error caused by conflict with $_POST['rcp_level']
+add_action( 'init', function () {
+    if ( class_exists( 'RCP_Levels' ) && isset( $_POST['_sc_product_name'] ) ) {
+        remove_action( 'init', 'rcp_setup_registration_init' );
+    }
+}, 1 );
 if ( !function_exists( 'sc_add_remove_to_rcp_level' ) ) {
-    function sc_add_remove_to_rcp_level(
-        $order_id,
-        $_sc_services,
-        $level,
-        $status,
-        $customerEmail,
-        $first_name,
-        $last_name
-    )
+    function sc_add_remove_to_rcp_level( $order, $level, $status )
     {
         if ( empty($level) || !function_exists( 'rcp_add_membership' ) ) {
             return;
         }
-        $user_id = email_exists( $customerEmail );
-        // no user id: create customer if status is pending or active, otherwise do nothing and return
-        
-        if ( !$user_id ) {
-            $creds = sc_generate_login_creds( $customerEmail );
-            
-            if ( in_array( $status, [ 'pending', 'active' ] ) ) {
-                $user_id = rcp_add_customer( array(
-                    'user_args' => array(
-                    'user_email' => $customerEmail,
-                    'user_login' => $creds['username'],
-                    'user_pass'  => $creds['password'],
-                    'first_name' => $first_name,
-                    'last_name'  => $last_name,
-                ),
-                ) );
-                sc_maybe_auto_login_user( $user_id, $order_id );
-            } else {
-                $msg = sprintf( __( 'Unable to change Restrict Content Pro membership status to %s because no user ID was found.', 'ncs-cart' ), $status );
-                sc_log_entry( $order_id, $msg );
-                return;
-            }
-        
-        }
-        
+        $order_id = $order['id'];
+        $user_id = sc_get_order_user_id( $order, $create = true );
         // Retrieve the customer record associated with this user ID.
         $customer = rcp_get_customer_by_user_id( $user_id );
         // create customer if doesn't exist
@@ -707,7 +657,6 @@ if ( !function_exists( 'sc_add_remove_to_rcp_level' ) ) {
             ) );
             $msg = sprintf( __( 'Restrict Content Pro customer ID: %s created', 'ncs-cart' ), $customer_id );
             sc_log_entry( $order_id, $msg );
-            return;
         } else {
             $customer_id = $customer->get_id();
         }
@@ -720,13 +669,12 @@ if ( !function_exists( 'sc_add_remove_to_rcp_level' ) ) {
         
         if ( !empty($memberships) ) {
             $args = array(
-                'customer_id' => $customer_id,
-                'object_id'   => $level,
-                'status'      => $status,
+                'status' => $status,
             );
-            $membership_id = rcp_update_membership( $memberships[0]->get_id(), $args );
+            $membership_id = $memberships[0]->get_id();
+            $update = rcp_update_membership( $membership_id, $args );
             
-            if ( $membership_id ) {
+            if ( $update ) {
                 $msg = sprintf( __( 'Restrict Content Pro membership ID: %s updated to status %s', 'ncs-cart' ), $membership_id, $status );
             } else {
                 $msg = 'Something went wrong when updating Restrict Content Pro membership';
@@ -836,18 +784,17 @@ if ( !function_exists( 'sc_add_remove_convertkit_subscriber' ) ) {
             //if subscribe
             
             if ( $action_name == 'subscribed' ) {
+                $data = array(
+                    'api_key'    => $apikey,
+                    'first_name' => $fname,
+                    'email'      => $email,
+                    'fields'     => array(
+                    'phone' => $phone,
+                ),
+                );
                 
                 if ( !empty($_sc_mail_forms) ) {
                     $url = "https://api.convertkit.com/v3/forms/{$_sc_mail_forms}/subscribe";
-                    $data = array(
-                        'api_key'    => $apikey,
-                        'first_name' => $fname,
-                        'email'      => $email,
-                        'fields'     => array(
-                        'name'  => $full_name,
-                        'phone' => $phone,
-                    ),
-                    );
                     $log_entry = __( 'Subscriber added to ConvertKit form.', 'ncs-cart' );
                     
                     if ( !empty($_sc_mail_tags) ) {
@@ -872,12 +819,9 @@ if ( !function_exists( 'sc_add_remove_convertkit_subscriber' ) ) {
                 
                 } else {
                     
-                    if ( !empty($_sc_mail_tags) ) {
-                        $url = "https://api.convertkit.com/v3/tags/{$_sc_mail_tags}/subscribe";
-                        $data = array(
-                            'api_key' => $apikey,
-                            'email'   => $email,
-                        );
+                    if ( isset( $_sc_mail_tags ) && is_array( $_sc_mail_tags ) && is_countable( $_sc_mail_tags ) && !empty($_sc_mail_tags[0]) ) {
+                        $url = "https://api.convertkit.com/v3/tags/{$_sc_mail_tags[0]}/subscribe";
+                        $data['api_secret'] = $secretKey;
                         $response = wp_remote_post( $url, array(
                             'method'  => 'POST',
                             'headers' => array(
@@ -890,8 +834,16 @@ if ( !function_exists( 'sc_add_remove_convertkit_subscriber' ) ) {
                             $error_message = $response->get_error_message();
                             sc_log_entry( $order_id, "Something went wrong with adding ConvertKit tag: {$error_message}" );
                         } else {
-                            $log_entry = __( 'ConvertKit subscriber tagged', 'ncs-cart' );
-                            sc_log_entry( $order_id, $log_entry );
+                            
+                            if ( $response['response']['code'] === 200 ) {
+                                $log_entry = __( 'ConvertKit subscriber tagged', 'ncs-cart' );
+                                sc_log_entry( $order_id, $log_entry );
+                            } else {
+                                $error_data = json_decode( $response['body'], true );
+                                $error_message = ( isset( $error_data['error'] ) ? $error_data['error'] : 'Something went wrong with adding ConvertKit tag' );
+                                sc_log_entry( $order_id, "ConvertKit error: {$error_message}" );
+                            }
+                        
                         }
                     
                     }
@@ -901,8 +853,8 @@ if ( !function_exists( 'sc_add_remove_convertkit_subscriber' ) ) {
             } else {
                 //remove contact
                 
-                if ( !empty($_sc_mail_tags) ) {
-                    $url = "https://api.convertkit.com/v3/tags/{$_sc_mail_tags}/unsubscribe";
+                if ( isset( $_sc_mail_tags ) && is_array( $_sc_mail_tags ) && is_countable( $_sc_mail_tags ) && !empty($_sc_mail_tags[0]) ) {
+                    $url = "https://api.convertkit.com/v3/tags/{$_sc_mail_tags[0]}/unsubscribe";
                     $data = array(
                         'api_secret' => $secretKey,
                         'email'      => $email,
@@ -917,9 +869,18 @@ if ( !function_exists( 'sc_add_remove_convertkit_subscriber' ) ) {
                     
                     if ( is_wp_error( $response ) ) {
                         $error_message = $response->get_error_message();
-                        sc_log_entry( $order_id, "Something went wrong with removing ConvertKit tag: {$error_message}" );
+                        sc_log_entry( $order_id, "Something went wrong with adding ConvertKit tag: {$error_message}" );
                     } else {
-                        sc_log_entry( $order_id, "ConvertKit tag removed from subscriber." );
+                        
+                        if ( $response['response']['code'] === 200 ) {
+                            $log_entry = __( 'ConvertKit tag removed from subscriber.', 'ncs-cart' );
+                            sc_log_entry( $order_id, $log_entry );
+                        } else {
+                            $error_data = json_decode( $response['body'], true );
+                            $error_message = ( isset( $error_data['error'] ) ? $error_data['error'] : 'Something went wrong with adding ConvertKit tag' );
+                            sc_log_entry( $order_id, "ConvertKit error: {$error_message}" );
+                        }
+                    
                     }
                 
                 }
@@ -951,7 +912,7 @@ if ( !function_exists( 'sc_add_remove_mailchimp_subscriber' ) ) {
     )
     {
         global  $wpdb ;
-        if ( empty($service_id) || empty($action_name) || empty($list_id || empty($email)) ) {
+        if ( empty($service_id) || empty($action_name) || empty($list_id) || empty($email) ) {
             return;
         }
         //MAILCHIMP
@@ -985,7 +946,7 @@ if ( !function_exists( 'sc_add_remove_mailchimp_subscriber' ) ) {
                     
                     
                     if ( !empty($_sc_mail_groups) ) {
-                        $groups = explode( ',', $_sc_mail_groups );
+                        $groups = ( is_array( $_sc_mail_groups ) ? $_sc_mail_groups : explode( ',', $_sc_mail_groups ) );
                         foreach ( $groups as $key => $value ) {
                             $subscriber_hash = $MailChimp->subscriberHash( $email );
                             $result = $MailChimp->patch( "lists/{$list_id}/members/{$subscriber_hash}", [
@@ -1001,7 +962,7 @@ if ( !function_exists( 'sc_add_remove_mailchimp_subscriber' ) ) {
                     
                     
                     if ( !empty($_sc_mail_tags) ) {
-                        $tags = explode( ',', $_sc_mail_tags );
+                        $tags = ( is_array( $_sc_mail_tags ) ? $_sc_mail_tags : explode( ',', $_sc_mail_tags ) );
                         foreach ( $tags as $key => $value ) {
                             $value = str_replace( 'tag-', '', $value );
                             $result = $MailChimp->post( "lists/{$list_id}/segments/{$value}", [
@@ -1056,35 +1017,37 @@ function sc_log_entry( $order_id, $entry )
     update_post_meta( $order_id, '_sc_order_log', $log_entries );
 }
 
-function sc_format_number( $amt, $string = false )
+function sc_format_number( $amt )
 {
-    $decisep = get_option( '_sc_decimal_separator' );
-    $decinum = intval( get_option( '_sc_decimal_number' ) );
-    if ( !$decisep ) {
-        $decisep = '.';
-    }
     
-    if ( $string ) {
-        $thousep = get_option( '_sc_thousand_separator' );
-        if ( !$thousep ) {
-            $thousep = ',';
-        }
+    if ( $amt === '' ) {
+        return '';
     } else {
-        $thousep = '';
+        if ( $amt === '0' ) {
+            return 0;
+        }
     }
     
-    // format price
-    return number_format(
-        floatval( $amt ),
+    $num = get_option( '_sc_decimal_number' );
+    $decinum = ( $num === '0' || !empty($num) ? intval( get_option( '_sc_decimal_number' ) ) : 2 );
+    $decisep = ( !empty(get_option( '_sc_decimal_separator' )) ? get_option( '_sc_decimal_separator' ) : '.' );
+    $thousep = ( !empty(get_option( '_sc_thousand_separator' )) ? get_option( '_sc_thousand_separator' ) : ',' );
+    $amt = (double) $amt;
+    $formatted_amt = number_format(
+        $amt,
         $decinum,
         $decisep,
         $thousep
     );
+    return $formatted_amt;
 }
 
 function sc_format_price( $amt, $html = true )
 {
     global  $sc_currency_symbol ;
+    if ( $amt === '' ) {
+        return '';
+    }
     $position = get_option( '_sc_currency_position' );
     $price = '';
     $symbol = sc_get_currency_symbol();
@@ -1102,7 +1065,7 @@ function sc_format_price( $amt, $html = true )
     }
     
     // format price
-    $price .= sc_format_number( $amt, true );
+    $price .= sc_format_number( $amt );
     // right positioned currency
     
     if ( $position == 'right' || $position == 'right-space' ) {
@@ -1119,6 +1082,15 @@ function sc_format_price( $amt, $html = true )
 function sc_formatted_price( $price )
 {
     echo  sc_format_price( $price ) ;
+}
+
+function sc_format_stripe_number( $amount, $sc_currency = 'USD' )
+{
+    $zero_decimal_currency = get_sc_zero_decimal_currency();
+    if ( !in_array( $sc_currency, $zero_decimal_currency ) ) {
+        $amount = $amount / 100;
+    }
+    return sc_format_number( $amount );
 }
 
 function sc_get_currency_symbol()
@@ -1151,10 +1123,128 @@ function sc_currency_settings()
     ];
 }
 
+function sc_get_user_phone( $user_id )
+{
+    global  $wpdb ;
+    $user_phone = get_user_meta( $user_id, '_sc_phone', true );
+    
+    if ( !$user_phone ) {
+        $query = "SELECT max(post_id) FROM {$wpdb->postmeta} WHERE `meta_key` = '_sc_user_account' AND `meta_value` = {$user_id}";
+        $post_id_meta = $wpdb->get_var( $query );
+        $user_phone = get_post_meta( $post_id_meta, '_sc_phone', true );
+        add_user_meta(
+            $user_id,
+            '_sc_phone',
+            $user_phone,
+            true
+        );
+    }
+    
+    return $user_phone;
+}
+
+function sc_get_user_address( $user_id )
+{
+    global  $wpdb ;
+    $user_address = get_user_meta( $user_id, '_sc_address', true );
+    
+    if ( $user_address ) {
+        $address = array(
+            'address'   => $user_address,
+            'address_1' => get_user_meta( $user_id, '_sc_address_1', true ),
+            'address_2' => get_user_meta( $user_id, '_sc_address_2', true ),
+            'city'      => get_user_meta( $user_id, '_sc_city', true ),
+            'state'     => get_user_meta( $user_id, '_sc_state', true ),
+            'zip'       => get_user_meta( $user_id, '_sc_zip', true ),
+            'country'   => get_user_meta( $user_id, '_sc_country', true ),
+        );
+        return $address;
+    } else {
+        $query = "SELECT max(post_id) FROM {$wpdb->postmeta} WHERE `meta_key` = '_sc_user_account' AND `meta_value` = {$user_id}";
+        $post_id_meta = $wpdb->get_var( $query );
+        $address_1 = get_post_meta( $post_id_meta, '_sc_address1', true );
+        $address_2 = get_post_meta( $post_id_meta, '_sc_address2', true );
+        $city = get_post_meta( $post_id_meta, '_sc_city', true );
+        $state = get_post_meta( $post_id_meta, '_sc_state', true );
+        $zip = get_post_meta( $post_id_meta, '_sc_zip', true );
+        $country = get_post_meta( $post_id_meta, '_sc_country', true );
+        
+        if ( $address_1 || $city || $state || $zip || $country ) {
+            update_user_meta( $user_id, '_sc_address_1', $address_1 );
+            update_user_meta( $user_id, '_sc_address_2', $address_2 );
+            update_user_meta( $user_id, '_sc_city', $city );
+            update_user_meta( $user_id, '_sc_state', $state );
+            update_user_meta( $user_id, '_sc_zip', $zip );
+            update_user_meta( $user_id, '_sc_country', $country );
+            $address = array(
+                'address_1' => $address_1,
+                'address_2' => $address_2,
+                'city'      => $city,
+                'state'     => $state,
+                'zip'       => $zip,
+                'country'   => $country,
+            );
+            $address['address'] = 1;
+            update_user_meta( $user_id, '_sc_address', $address['address'] );
+            return $address;
+        } else {
+            return false;
+        }
+    
+    }
+
+}
+
+function sc_format_address( $address )
+{
+    $order = (object) $address;
+    $str = '';
+    
+    if ( isset( $order->address1 ) || isset( $order->city ) || isset( $order->state ) || isset( $order->zip ) || isset( $order->country ) ) {
+        if ( isset( $order->address1 ) && $order->address1 ) {
+            $str .= $order->address1 . '<br/>';
+        }
+        if ( isset( $order->address2 ) && $order->address2 ) {
+            $str .= $order->address2 . '<br/>';
+        }
+        
+        if ( isset( $order->city ) || isset( $order->state ) || isset( $order->zip ) ) {
+            if ( isset( $order->city ) && $order->city ) {
+                $str .= $order->city;
+            }
+            
+            if ( isset( $order->state ) && $order->state ) {
+                if ( $str != '' ) {
+                    $str .= ', ';
+                }
+                $str .= $order->state;
+            }
+            
+            
+            if ( isset( $order->zip ) && $order->zip ) {
+                if ( $str != '' ) {
+                    $str .= ' ';
+                }
+                $str .= $order->zip;
+            }
+            
+            if ( $str != '' ) {
+                $str .= '<br>';
+            }
+        }
+        
+        if ( isset( $order->country ) && $order->country ) {
+            $str .= $order->country . '<br/>';
+        }
+    }
+    
+    return $str;
+}
+
 function sc_order_address( $id )
 {
     $order = sc_setup_order( $id );
-    $str = ' ';
+    $str = '';
     
     if ( isset( $order->address1 ) || isset( $order->city ) || isset( $order->state ) || isset( $order->zip ) || isset( $order->country ) ) {
         if ( isset( $order->address1 ) && $order->address1 ) {
@@ -1203,7 +1293,7 @@ function sc_maybe_rebuild_custom_post_data( $post_id )
     
     if ( !$custom_fields ) {
         // none found here, check parent subscription for info
-        $sub_id = get_post_meta( $sub_id, '_sc_subscription_id', true );
+        $sub_id = get_post_meta( $post_id, '_sc_subscription_id', true );
         if ( $sub_id && ($custom_fields = get_post_meta( $sub_id, '_sc_custom_fields_post_data', true )) ) {
             $post_id = $sub_id;
         }
@@ -1241,13 +1331,14 @@ function sc_get_public_product_name( $id = false )
 
 function sc_trigger_integrations( $status, $order_info )
 {
+    $event_type = 'order';
     
     if ( $status == 'lead' ) {
         do_action(
             'sc_order_lead',
             $status,
             $order_info,
-            $order_info['product_id']
+            'main'
         );
     } else {
         // setup order object
@@ -1259,12 +1350,23 @@ function sc_trigger_integrations( $status, $order_info )
             }
             
             if ( get_post_type( $order_info ) == 'sc_order' ) {
-                $order_info = new ScrtOrder( $order_info );
+                $order = new ScrtOrder( $order_info );
+                $order = apply_filters( 'studiocart_order', $order );
             } else {
-                $order_info = new ScrtSubscription( $order_info );
+                $order = new ScrtSubscription( $order_info );
             }
             
-            $order_info = $order_info->get_data();
+            $order_info = $order->get_data();
+        }
+        
+        // set event type
+        
+        if ( isset( $order_info['renewal_order'] ) && $order_info['renewal_order'] ) {
+            $event_type = 'renewal';
+        } else {
+            if ( get_post_type( $order_info['ID'] ) == 'sc_subscription' ) {
+                $event_type = 'subscription';
+            }
         }
         
         // set order type
@@ -1279,7 +1381,7 @@ function sc_trigger_integrations( $status, $order_info )
         
         // also check subscription (if exists) to see if this is an upsell (we shouldn't need this anymore)
         
-        if ( (!isset( $order_info['order_type'] ) || $order_info['order_type'] == 'main') && $order_info['transaction_id'] && $order_info['subscription_id'] ) {
+        if ( (!isset( $order_info['order_type'] ) || $order_info['order_type'] == 'main') && isset( $order_info['transaction_id'] ) && isset( $order_info['subscription_id'] ) ) {
             $sub_id = $order_info['subscription_id'];
             
             if ( get_post_meta( $sub_id, '_sc_us_parent', true ) ) {
@@ -1303,8 +1405,9 @@ function sc_trigger_integrations( $status, $order_info )
                 break;
             case 'paid':
                 
-                if ( get_post_meta( $order_info['ID'], '_sc_renewal_order', true ) ) {
+                if ( $event_type == 'renewal' ) {
                     $action = 'sc_renewal_payment';
+                    $status = 'renewal';
                 } else {
                     $action = 'sc_order_complete';
                 }
@@ -1312,13 +1415,15 @@ function sc_trigger_integrations( $status, $order_info )
                 break;
             case 'completed':
                 
-                if ( get_post_type( $order_info['ID'] ) == 'sc_subscription' ) {
+                if ( $event_type == 'subscription' ) {
                     $action = 'sc_subscription_completed';
                 } else {
-                    $action = 'sc_order_complete';
-                    $status = 'paid';
+                    $action = 'sc_order_marked_complete';
                 }
                 
+                break;
+            case 'trialing':
+                $action = 'sc_subscription_trialing';
                 break;
             case 'active':
                 $action = 'sc_subscription_active';
@@ -1326,16 +1431,22 @@ function sc_trigger_integrations( $status, $order_info )
             case 'canceled':
                 $action = 'sc_subscription_canceled';
                 break;
+            case 'paused':
+                $action = 'sc_subscription_paused';
+                break;
             case 'past_due':
                 $action = 'sc_subscription_past_due';
+                break;
+            case 'trialing':
+                $action = 'sc_subscription_trialing';
                 break;
             case 'renewal':
                 $action = 'sc_renewal_payment';
                 break;
-            case 'failed':
+            case 'failed' && $event_type == 'renewal':
                 $action = 'sc_renewal_failed';
                 break;
-            case 'uncollectible':
+            case 'uncollectible' && $event_type == 'renewal':
                 $action = 'sc_renewal_uncollectible';
                 break;
             case 'refunded':
@@ -1368,7 +1479,14 @@ function sc_trigger_integrations( $status, $order_info )
         }
     
     }
-
+    
+    // hook for after integrations have run (emails, webhooks, etc.)
+    do_action(
+        'sc_run_after_integrations',
+        $status,
+        $order_info,
+        $event_type
+    );
 }
 
 function sc_consent_services()
@@ -1383,21 +1501,58 @@ function sc_consent_services()
     ) );
 }
 
+function sc_matched_plan( $order_data, $plan_ids, $order_ids = array() )
+{
+    $matched_plan = false;
+    $order_ids = (array) $order_ids;
+    if ( is_object( $order_data ) ) {
+        $order_data = $order_data->get_data();
+    }
+    
+    if ( $order_items = sc_get_order_items( $order_data['ID'] ) ) {
+        $price_ids = wp_list_pluck( $order_items, 'price_id' );
+        $item_types = wp_list_pluck( $order_items, 'item_type' );
+        $order_ids = array_merge( $order_ids, $price_ids, $item_types );
+        $matched_plan = sc_match_plan( $plan_ids, $order_ids );
+    } else {
+        $order_ids[] = $order_data['plan_id'];
+        // Stripe ID, remove in 3.0
+        $order_ids[] = $order_data['option_id'];
+        $matched_plan = sc_match_plan( $plan_ids, $order_ids );
+    }
+    
+    return $matched_plan;
+}
+
+function sc_match_plan( $plan_ids, $order_price_ids )
+{
+    $matched_plan = false;
+    
+    if ( empty($plan_ids) || in_array( '', $plan_ids ) ) {
+        return true;
+    } else {
+        foreach ( $order_price_ids as $id ) {
+            if ( in_array( $id, $plan_ids ) || in_array( $id . '_sale', $plan_ids ) ) {
+                return true;
+            }
+        }
+    }
+    
+    return $matched_plan;
+}
+
 function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
 {
+    $customerEmail = $order['email'];
+    $phone = $order['phone'];
+    $first_name = $order['first_name'];
+    $last_name = $order['last_name'];
+    $order_type = $order['order_type'] ?? 'main';
     
     if ( $trigger != 'lead' ) {
         $order_id = $order['id'];
-        $customerEmail = $order['email'];
-        $phone = $order['phone'];
-        $first_name = $order['first_name'];
-        $last_name = $order['last_name'];
         $plan_id = $order['plan_id'];
         $option_id = ( isset( $order['option_id'] ) ? $order['option_id'] : get_post_meta( $order_id, '_sc_option_id', true ) );
-        $order_type = $order['order_type'];
-        if ( !isset( $order_type ) ) {
-            $order_type = 'main';
-        }
         if ( !isset( $order['amount'] ) ) {
             $order['amount'] = get_post_meta( $order['id'], '_sc_amount', true );
         }
@@ -1413,7 +1568,7 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
             // do we need consent to run this integration?
             
             if ( get_post_meta( $sc_product_id, '_sc_show_optin_cb', true ) ) {
-                $consent = ( $order['consent'] == 'yes' ? true : false );
+                $consent = ( strtolower( $order['consent'] ) == 'yes' ? true : false );
                 $consent_services = sc_consent_services();
                 if ( in_array( $intg['services'], $consent_services ) && isset( $intg['require_optin'] ) && !$consent ) {
                     continue;
@@ -1440,10 +1595,6 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
             //activecampaign list ID
             $activecampaign_tags = ( isset( $intg['activecampaign_tags'] ) ? $intg['activecampaign_tags'] : "" );
             //activecampaign tags
-            $kajabi_email_confirmation = ( isset( $intg['kajabi_email_confirmation'] ) ? $intg['kajabi_email_confirmation'] : "" );
-            //kajabi_email_confirmation
-            $kajabi_url = ( isset( $intg['kajabi_url'] ) ? $intg['kajabi_url'] : "" );
-            //kajabi_url
             $member_vault_course_id = ( isset( $intg['member_vault_course_id'] ) ? $intg['member_vault_course_id'] : "" );
             //member_vault_course_id
             $membervault_action = ( isset( $intg['membervault_action'] ) ? $intg['membervault_action'] : "add_user" );
@@ -1472,6 +1623,7 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
             
             
             if ( in_array( $trigger, $_sc_service_trigger ) && $matched_plan ) {
+                $intg['service_trigger'] = $trigger;
                 //check if mailchimp list id exist
                 if ( $_sc_services == "mailchimp" && $_sc_mail_list != "" ) {
                     sc_add_remove_mailchimp_subscriber(
@@ -1504,8 +1656,9 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
                     );
                 }
                 //check if activecampaign list id exist
-                $fieldmap = $intg['activecampaign_field_map'];
+                
                 if ( $_sc_services == "activecampaign" ) {
+                    $fieldmap = $intg['activecampaign_field_map'];
                     sc_add_remove_activecampaign_subscriber(
                         $order_id,
                         $_sc_services,
@@ -1520,6 +1673,7 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
                         $fieldmap
                     );
                 }
+                
                 //check if sendfox
                 
                 if ( $_sc_services == "sendfox" ) {
@@ -1550,20 +1704,6 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
                     );
                 }
                 
-                //check if kajabi
-                if ( $_sc_services == "kajabi" && !empty($kajabi_url) ) {
-                    sc_add_remove_kajabi_subscriber(
-                        $order_id,
-                        $_sc_services,
-                        $_sc_service_action,
-                        $kajabi_email_confirmation,
-                        $kajabi_url,
-                        $customerEmail,
-                        $phone = '',
-                        $first_name,
-                        $last_name
-                    );
-                }
                 // create WP user
                 if ( $_sc_services == "create user" ) {
                     $order['user_id'] = sc_create_user(
@@ -1572,6 +1712,18 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
                         $first_name,
                         $last_name,
                         $intg['user_role']
+                    );
+                }
+                // update WP user
+                if ( $_sc_services == "update user" ) {
+                    $order['user_id'] = sc_create_user(
+                        $order_id,
+                        $customerEmail,
+                        $first_name,
+                        $last_name,
+                        $intg['user_role'],
+                        null,
+                        $intg['previous_user_role']
                     );
                 }
                 //check if membervault
@@ -1602,16 +1754,46 @@ function sc_do_integrations( $sc_product_id, $order, $trigger = 'purchased' )
 
 }
 
-function sc_webhook_order_body( $order, $type = '' )
+function sc_webhook_order_body( $order, $type = '', $price_in_cents = false )
 {
+    global  $sc_currency ;
+    $keys = array(
+        'amount',
+        'order_amount',
+        'tax_amount',
+        'pre_tax_amount',
+        'invoice_total',
+        'invoice_subtotal',
+        'subscription_amount',
+        'total_amount',
+        'shipping_amount',
+        'discount',
+        'unit_price',
+        'subtotal',
+        'discount_amount',
+        'sign_up_fee'
+    );
+    $invoices = false;
     
     if ( is_numeric( $order ) ) {
-        $order = new ScrtOrder( $order );
+        
+        if ( get_post_type( $order ) == 'sc_subscription' ) {
+            $order = new ScrtSubscription( $order );
+            $invoices = $order->orders();
+        } else {
+            $order = new ScrtOrder( $order );
+        }
+        
         $order = $order->get_data();
     }
     
     $body = array();
-    // backwards compatibility
+    if ( $type ) {
+        $body['trigger'] = $type;
+    }
+    if ( $type != 'lead' ) {
+        $body['id'] = $order['id'];
+    }
     $body['customer_firstname'] = $order['firstname'];
     $body['customer_lastname'] = $order['lastname'];
     $body['customer_name'] = $order['firstname'] . ' ' . $order['lastname'];
@@ -1625,44 +1807,140 @@ function sc_webhook_order_body( $order, $type = '' )
     $body['customer_country'] = $order['country'];
     $body['product_id'] = $order['product_id'];
     $body['product_name'] = $order['product_name'];
+    $body['gateway'] = $order['pay_method'];
     $body['custom_fields'] = $order['custom_fields'];
+    $body['shipping_amount'] = $order['shipping_amount'] ?? '';
+    $body['ip_address'] = $order['ip_address'];
+    $body['date'] = date( "Y-m-d", strtotime( 'now' ) );
+    $body['date_time'] = get_gmt_from_date( date( "Y-m-d H:i:s", strtotime( 'now' ) ) );
     
     if ( $type != 'lead' ) {
         $body['payment_plan'] = $order['item_name'];
         $body['payment_plan_id'] = $order['option_id'];
-        $body['order_id'] = $order['ID'];
         $body['order_amount'] = (double) $order['amount'];
-        $body['order_status'] = $order['status'];
-        $body['signup_consent'] = $order['consent'];
-        $body['invoice_total'] = (double) $order['invoice_total'];
-        $body['invoice_subtotal'] = (double) $order['invoice_subtotal'];
         $body['tax_amount'] = (double) $order['tax_amount'];
+        $body['pre_tax_amount'] = ( isset( $order['pre_tax_amount'] ) ? (double) $order['pre_tax_amount'] : '' );
         $body['tax_rate'] = $order['tax_rate'];
         $body['tax_type'] = $order['tax_type'];
         $body['tax_desc'] = $order['tax_desc'];
         $body['vat_number'] = $order['vat_number'];
-        
-        if ( is_array( $order['order_bumps'] ) ) {
-            $i = 1;
-            foreach ( $order['order_bumps'] as $i => $bump ) {
-                $body['bump_' . $i . '_amount'] = (double) $bump['amount'];
-                $body['bump_' . $i . '_id'] = $bump['id'];
-                $body['bump_' . $i . '_name'] = $bump['name'];
-                $i++;
-            }
-        }
-        
+        $body['date'] = get_the_date( 'Y-m-d', $order['id'] );
+        $body['date_time'] = get_gmt_from_date( get_the_date( 'Y-m-d H:i:s', $order['id'] ) );
         $body['coupon'] = $order['coupon_id'];
         $body['currency'] = $order['currency'];
+        if ( isset( $order['coupon']['amount'] ) ) {
+            $body['discount'] = $order['coupon']['amount'];
+        }
+        
+        if ( !isset( $order['sub_amount'] ) ) {
+            // orders
+            $body['transaction_id'] = $order['transaction_id'];
+            if ( isset( $order['subscription_id'] ) ) {
+                $body['subscription_id'] = $order['subscription_id'];
+            }
+            $body['status'] = $order['status'];
+            $body['order_status'] = $order['status'];
+            // remove
+            $body['order_id'] = $order['id'];
+            
+            if ( $items = sc_get_item_list( $order['id'], false, true ) ) {
+                $body['items'] = $items['items'];
+                if ( $price_in_cents ) {
+                    foreach ( $body['items'] as $i => $item ) {
+                        foreach ( $item as $k => $v ) {
+                            if ( in_array( $k, $keys ) ) {
+                                $body['items'][$i][$k] = sc_price_in_cents( $v, $sc_currency );
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if ( get_post_meta( $order['product_id'], '_sc_show_optin_cb', true ) ) {
+                $body['signup_consent'] = $order['consent'] ?? 'No';
+            }
+            $body['invoice_total'] = (double) $order['invoice_total'];
+            $body['invoice_subtotal'] = (double) $order['invoice_subtotal'];
+        } else {
+            // subscriptions
+            $body['sub_amount'] = (double) $order['sub_amount'];
+            $body['subscription_id'] = $order['subscription_id'];
+            $body['status'] = $order['status'];
+            $body['amount'] = $order['sub_amount'];
+            if ( $order['sub_installments'] > 1 ) {
+                $body['installments'] = $order['sub_installments'];
+            }
+            $body['interval'] = $order['sub_interval'];
+            $body['frequency'] = $order['sub_frequency'];
+            $body['trial_days'] = $order['free_trial_days'];
+            $body['sign_up_fee'] = $order['sign_up_fee'];
+            
+            if ( $order['sub_next_bill_date'] ) {
+                $body['next_bill_date'] = sc_maybe_format_date( $order['sub_next_bill_date'], 'Y-m-d' );
+                $body['next_bill_date_time'] = sc_maybe_format_date( $order['sub_next_bill_date'], 'Y-m-d H:i:s' );
+            }
+            
+            
+            if ( $order['sub_end_date'] ) {
+                $body["end_date"] = sc_maybe_format_date( $order['sub_end_date'], 'Y-m-d' );
+                $body["end_date_time"] = sc_maybe_format_date( $order['sub_end_date'], 'Y-m-d H:i:s' );
+            }
+            
+            
+            if ( $order['cancel_date'] ) {
+                $body["cancel_date"] = sc_maybe_format_date( $order['cancel_date'], 'Y-m-d' );
+                $body["cancel_date_time"] = sc_maybe_format_date( $order['cancel_date'], 'Y-m-d H:i:s' );
+            }
+        
+        }
+    
     }
     
     $body['website_url'] = get_site_url();
     $body['order_url'] = $order['page_url'];
-    $body['studiocart_secret'] = get_option( '_sc_api_key' );
     $body = array_filter( $body, function ( $v ) {
         return !is_null( $v ) && $v !== '';
     } );
+    if ( $price_in_cents ) {
+        foreach ( $body as $k => $v ) {
+            if ( in_array( $k, $keys ) ) {
+                $body[$k] = sc_price_in_cents( $v, $sc_currency );
+            }
+        }
+    }
+    
+    if ( $invoices ) {
+        $invoice_arr = array();
+        foreach ( $invoices as $order ) {
+            $invoice_arr[] = array(
+                'id'           => $order->id,
+                'status'       => $order->status,
+                'order_amount' => ( $price_in_cents ? sc_price_in_cents( $order->amount, $sc_currency ) : $order->amount ),
+                'date'         => get_the_date( 'Y-m-d', $order->id ),
+                'date_time'    => get_the_date( "Y-m-d H:i:s", $order->id ),
+            );
+        }
+        $body['invoices'] = $invoice_arr;
+    }
+    
     return apply_filters( 'sc_webhook_order_data', $body );
+}
+
+function sc_maybe_format_date( $str, $format = false )
+{
+    if ( !$str ) {
+        return $str;
+    }
+    if ( !is_numeric( $str ) ) {
+        $str = strtotime( $str );
+    }
+    
+    if ( !$format ) {
+        return date_i18n( get_option( 'date_format' ), $str );
+    } else {
+        return date_i18n( $format, $str );
+    }
+
 }
 
 function sc_get_order_user_id( $order, $create = false )
@@ -1733,13 +2011,33 @@ function sc_create_user(
     $first_name,
     $last_name,
     $user_role = '',
-    $send_email_override = null
+    $send_email_override = null,
+    $change_roles = false
 )
 {
+    $sub_id = false;
+    if ( get_post_type( $order_id ) == 'sc_order' ) {
+        $sub_id = get_post_meta( $order_id, '_sc_subscription_id', true );
+    }
     
     if ( $user_id = email_exists( $customerEmail ) ) {
+        $u = new WP_User( $user_id );
         update_post_meta( $order_id, '_sc_user_account', $user_id );
-        sc_log_entry( $order_id, sprintf( __( "A user with this email address already exists (User ID: %s)", 'ncs-cart' ), $user_id ) );
+        // add user to subscription if exists
+        if ( $sub_id ) {
+            update_post_meta( $sub_id, '_sc_user_account', $user_id );
+        }
+        // Update user role
+        
+        if ( is_countable( $change_roles ) && is_countable( $u->roles ) ) {
+            foreach ( $u->roles as $role ) {
+                if ( in_array( $role, $change_roles ) ) {
+                    $u->set_role( $user_role );
+                }
+            }
+            sc_log_entry( $order_id, sprintf( __( "Role for User ID: %s updated to %s", 'ncs-cart' ), $user_id, $user_role ) );
+        }
+    
     } else {
         $creds = sc_generate_login_creds( $customerEmail );
         $user_data = array(
@@ -1756,6 +2054,10 @@ function sc_create_user(
         if ( $user_id && $order_id ) {
             $msg = sprintf( __( "New user created (ID: %s)", 'ncs-cart' ), $user_id );
             update_post_meta( $order_id, '_sc_user_account', $user_id );
+            // add user to subscription if exists
+            if ( $sub_id ) {
+                update_post_meta( $sub_id, '_sc_user_account', $user_id );
+            }
             sc_log_entry( $order_id, $msg );
             do_action( 'sc_after_user_is_created', $user_id, $order_id );
             // send notification email
@@ -1778,35 +2080,41 @@ function sc_maybe_auto_login_user( $user_id, $order_id )
         return;
     }
     
-    if ( isset( $_POST['sc-auto-login'] ) || isset( $_POST['sc_process_payment'] ) ) {
+    if ( !is_user_logged_in() && isset( $_POST['sc-auto-login'] ) ) {
         wp_set_current_user( $user_id );
         wp_set_auth_cookie( $user_id );
     }
 
 }
 
-function sc_new_user_notification( $user, $order_id )
+function sc_new_user_notification( $user, $order_id, $test = false )
 {
-    $from_name = get_option( '_sc_email_from_name' );
-    $from_email = get_option( '_sc_email_from_email' );
-    $login = get_option( '_my_account' );
-    $order_info = (array) sc_setup_order( $order_id );
-    $order_info['username'] = $user['user_login'];
-    $order_info['password'] = $user['user_pass'];
-    $subject = sc_personalize( get_option( '_sc_registration_subject' ), $order_info );
-    $body = sc_personalize( get_option( '_sc_registration_email_body' ), $order_info );
+    $from_name = get_option( '_sc_email_from_name', '' );
+    $from_email = get_option( '_sc_email_from_email', '' );
+    $subject = get_option( '_sc_registration_subject', '' );
+    $body = get_option( '_sc_registration_email_body', '' );
+    
+    if ( !$test ) {
+        $order_info = (array) sc_setup_order( $order_id );
+        $order_info['username'] = $user['user_login'];
+        $order_info['password'] = $user['user_pass'];
+        $subject = sc_personalize( $subject, $order_info );
+        $body = sc_personalize( $body, $order_info );
+        $to = $user['user_email'];
+    } else {
+        $order_info = $order_id;
+    }
+    
+    $atts = array(
+        'type'       => 'registration',
+        'order_info' => $order_info,
+        'headline'   => '',
+        'body'       => $body,
+    );
+    $body = sc_get_email_html( $atts );
     $body = html_entity_decode( $body, ENT_QUOTES, "UTF-8" );
     $headers = array( 'Content-Type: text/html; charset=UTF-8', 'From: ' . $from_name . ' <' . $from_email . '>' );
-    $to = $user['user_email'];
-    wp_mail(
-        $to,
-        $subject,
-        $body,
-        $headers
-    );
-    
-    if ( get_option( '_sc_registration_email_admin' ) ) {
-        $to = get_option( 'admin_email' );
+    if ( !$test ) {
         wp_mail(
             $to,
             $subject,
@@ -1814,10 +2122,26 @@ function sc_new_user_notification( $user, $order_id )
             $headers
         );
     }
+    
+    if ( get_option( '_sc_registration_email_admin' ) || $test ) {
+        if ( !($admin_email = get_option( 'sc_admin_email' )) ) {
+            $admin_email = get_option( 'admin_email' );
+        }
+        $to = apply_filters( 'sc_admin_notification_email', $admin_email, $order_info );
+        $res = wp_mail(
+            $to,
+            $subject,
+            $body,
+            $headers
+        );
+        if ( $test ) {
+            return $res;
+        }
+    }
 
 }
 
-function studiocart_notification_send( $status, $order_info )
+function studiocart_notification_send( $status, $order_info, $test = false )
 {
     switch ( $status ) {
         case 'paid':
@@ -1828,46 +2152,83 @@ function studiocart_notification_send( $status, $order_info )
             break;
     }
     
-    if ( $type && get_option( '_sc_email_' . $type . '_enable' ) ) {
-        
-        if ( is_numeric( $order_info ) ) {
-            $order_info = new ScrtOrder( $order_info );
-            $order_info = $order_info->get_data();
-        }
-        
+    if ( $type && ($test || get_option( '_sc_email_' . $type . '_enable' )) ) {
         $em = '_sc_email_' . $type . '_';
-        $from_name = get_option( '_sc_email_from_name' );
-        $from_email = get_option( '_sc_email_from_email' );
-        $subject = sc_personalize( get_option( $em . 'subject' ), $order_info );
-        $headline = get_option( $em . 'headline' ) ?? '';
-        $body = get_option( $em . 'body' ) ?? '';
+        $from_name = get_option( '_sc_email_from_name', '' );
+        $from_email = get_option( '_sc_email_from_email', '' );
+        $subject = get_option( $em . 'subject', '' );
+        $headline = get_option( $em . 'headline', '' );
+        $body = get_option( $em . 'body', '' );
+        if ( !$test ) {
+            
+            if ( is_numeric( $order_info ) ) {
+                
+                if ( !in_array( $status, array(
+                    'completed',
+                    'active',
+                    'paused',
+                    'canceled',
+                    'past_due'
+                ) ) ) {
+                    $order_info = new ScrtOrder( $order_info );
+                } else {
+                    $order_info = new ScrtSubscription( $order_info );
+                }
+                
+                $order_info = $order_info->get_data();
+            }
+        
+        }
+        $subject = sc_personalize( $subject, $order_info );
+        $headline = sc_personalize( $headline, $order_info );
+        $body = sc_personalize( $body, $order_info );
         $atts = array(
             'type'       => $type,
             'order_info' => $order_info,
-            'headline'   => sc_personalize( $headline, $order_info ),
-            'body'       => sc_personalize( $body, $order_info ),
+            'headline'   => $headline,
+            'body'       => $body,
         );
-        $body = sc_get_email_html( $atts );
         $to = trim( $order_info['email'] );
-        $firstname = trim( $order_info['firstname'] );
-        $lastname = trim( $order_info['lastname'] );
+        $body = sc_get_email_html( $atts );
         $body = html_entity_decode( $body, ENT_QUOTES, "UTF-8" );
+        $attachments = array();
         $headers = array( 'Content-Type: text/html; charset=UTF-8', 'From: ' . $from_name . ' <' . $from_email . '>' );
-        wp_mail(
-            $to,
-            $subject,
-            $body,
-            $headers
-        );
+        $attach = get_option( '_sc_invoice_attach_' . $type . '_email' );
         
-        if ( get_option( $em . 'admin' ) ) {
-            $to = get_option( 'admin_email' );
+        if ( $attach ) {
+            $order = new ScrtOrder( $order_info['id'] );
+            $attachments[] = $order->get_invoice();
+        }
+        
+        
+        if ( !$test ) {
             wp_mail(
                 $to,
                 $subject,
                 $body,
-                $headers
+                $headers,
+                $attachments
             );
+        } else {
+            $subject = sprintf( __( 'Test: %s', 'ncs-cart' ), $subject );
+        }
+        
+        
+        if ( get_option( $em . 'admin' ) || $test ) {
+            if ( !($admin_email = get_option( 'sc_admin_email' )) ) {
+                $admin_email = get_option( 'admin_email' );
+            }
+            $to = apply_filters( 'sc_admin_notification_email', $admin_email, $order_info );
+            $res = wp_mail(
+                $to,
+                $subject,
+                $body,
+                $headers,
+                $attachments
+            );
+            if ( $test ) {
+                return $res;
+            }
         }
     
     }
@@ -1877,7 +2238,7 @@ function studiocart_notification_send( $status, $order_info )
 function sc_get_email_html( $atts )
 {
     ob_start();
-    include_once dirname( __FILE__ ) . '/../public/templates/email/email-main.php';
+    ncs_helper()->renderTemplate( 'email/email-main', $atts );
     $output_string = ob_get_contents();
     ob_end_clean();
     return $output_string;
@@ -1888,17 +2249,20 @@ function sc_do_notifications( $order_info )
     //sc_log_entry($order_info['ID'], "doing notifications for product_id: " . $order_info['product_id']);
     $notifications = get_post_meta( $order_info['product_id'], '_sc_notifications', true );
     //get integration meta mailchimp
+    if ( !($admin_email = get_option( 'sc_admin_email' )) ) {
+        $admin_email = get_option( 'admin_email' );
+    }
     if ( $notifications ) {
         foreach ( $notifications as $k => $n ) {
             switch ( $n['send_to'] ) {
                 case 'enter':
-                    $to = $n['send_to_email'];
+                    $to = wp_specialchars_decode( sc_personalize( $n['send_to_email'], $order_info ) );
                     break;
                 case 'purchaser':
                     $to = $order_info['email'];
                     break;
                 default:
-                    $to = get_option( 'admin_email' );
+                    $to = $admin_email;
                     break;
             }
             $from_name = ( $n['from_name'] ? $n['from_name'] : get_bloginfo( 'name' ) );
@@ -1906,6 +2270,8 @@ function sc_do_notifications( $order_info )
             $subject = wp_specialchars_decode( sc_personalize( $n['subject'], $order_info ) );
             $body = wpautop( wp_specialchars_decode( sc_personalize( $n['message'], $order_info ), 'ENT_QUOTES' ), false );
             $headers = array( 'Content-Type: text/html; charset=UTF-8', 'From: ' . $from_name . ' <' . $from_email . '>' );
+            $n['reply_to'] = $n['reply_to'] ?? '';
+            $n['bcc'] = $n['bcc'] ?? '';
             if ( $n['reply_to'] ) {
                 $headers[] = 'Reply-To: ' . $n['reply_to'];
             }
@@ -2286,13 +2652,24 @@ function get_sc_zero_decimal_currency()
     return $zero_decimal_currency;
 }
 
-function get_sc_price( $amount, $sc_currency = 'USD' )
+function sc_price_in_cents( $amount, $currency = false )
 {
-    $zero_decimal_currency = get_sc_zero_decimal_currency();
-    if ( !in_array( $sc_currency, $zero_decimal_currency ) ) {
-        $amount = $amount * 100;
+    global  $sc_currency ;
+    if ( !$currency ) {
+        $currency = $sc_currency;
     }
-    return $amount;
+    
+    if ( $amount === '' ) {
+        $amount = 0;
+    } else {
+        $amount = (double) $amount;
+    }
+    
+    $zero_decimal_currency = get_sc_zero_decimal_currency();
+    if ( !in_array( $currency, $zero_decimal_currency ) ) {
+        $amount *= 100;
+    }
+    return intval( $amount );
 }
 
 
@@ -2479,9 +2856,157 @@ if ( !function_exists( 'sc_maybe_update_stock' ) ) {
     }
 
 }
+function sc_setup_upsells( $id )
+{
+    $id = intval( $id );
+    if ( get_post_type( $id ) != 'sc_us_path' ) {
+        return false;
+    }
+    $meta = get_post_custom( $id );
+    foreach ( $meta as $k => $v ) {
+        
+        if ( strpos( $k, '_sc_' ) === 0 ) {
+            $v = array_shift( $meta[$k] );
+            $k = str_replace( '_sc_', '', $k );
+            $arr[$k] = maybe_unserialize( $v );
+        }
+    
+    }
+    $arr = apply_filters( 'studiocart_upsell_path', $arr );
+    return $arr;
+}
+
+function sc_get_upsell( $offer, $path, $type = 'upsell' )
+{
+    
+    if ( isset( $path[$type . '_' . $offer] ) ) {
+        $prefix = ( $type == 'upsell' ? 'us_' : 'ds_' );
+        $ret = array(
+            'product' => $path[$prefix . 'product_' . $offer] ?? '',
+            'type'    => $path[$prefix . 'prod_type_' . $offer] ?? '',
+            'price'   => $path[$prefix . 'price_' . $offer] ?? '',
+            'plan'    => $path[$prefix . 'plan_' . $offer] ?? '',
+            'url'     => get_permalink( $path[$prefix . 'page_' . $offer] ),
+        );
+        
+        if ( !$ret['product'] || !$ret['url'] || !$ret['price'] && !$ret['plan'] ) {
+            return false;
+        } else {
+            return $ret;
+        }
+    
+    } else {
+        return false;
+    }
+
+}
+
+function sc_get_downsell( $offer, $path )
+{
+    return sc_get_upsell( $offer, $path, $type = 'downsell' );
+}
+
+add_filter(
+    'studiocart_upsell_urls',
+    'sc_upsell_urls',
+    10,
+    3
+);
+function sc_upsell_urls(
+    $urls,
+    $order_id,
+    $scp,
+    $type = 'upsell'
+)
+{
+    
+    if ( $scp->upsell_path ) {
+        $path = $scp->upsell_path;
+        $offer = ( isset( $_GET['step'] ) ? intval( $_GET['step'] ) : 1 );
+        $yes_url = $no_url = $scp->thanks_url;
+        // yes link
+        if ( $upsell = sc_get_upsell( $offer + 1, $path ) ) {
+            $yes_url = $upsell['url'];
+        }
+        if ( $type == 'upsell' ) {
+            // point "no" link to downsell if we're on an upsell page
+            if ( $downsell = sc_get_downsell( $offer, $path ) ) {
+                $no_url = $downsell['url'];
+            }
+        }
+        return array( $yes_url, $no_url );
+    }
+    
+    return $urls;
+}
+
+add_filter(
+    'studiocart_downsell_urls',
+    'sc_downsell_urls',
+    10,
+    3
+);
+function sc_downsell_urls( $urls, $order_id, $scp )
+{
+    if ( $scp->upsell_path ) {
+        return sc_upsell_urls(
+            $urls,
+            $order_id,
+            $scp,
+            $type = 'downsell'
+        );
+    }
+    return $urls;
+}
+
+add_filter(
+    'studiocart_show_upsell',
+    'sc_maybe_show_upsell',
+    10,
+    3
+);
+function sc_maybe_show_upsell( $show_upsell, $order_id, $scp )
+{
+    
+    if ( $scp->upsell_path ) {
+        $offer = ( isset( $_GET['step'] ) ? intval( $_GET['step'] ) : 1 );
+        update_post_meta( $order_id, 'current_upsell_offer', $offer );
+        if ( sc_get_upsell( $offer, $scp->upsell_path ) ) {
+            return true;
+        }
+        return false;
+    }
+    
+    return $show_upsell;
+}
+
+add_filter(
+    'studiocart_show_downsell',
+    'sc_maybe_show_downsell',
+    10,
+    3
+);
+function sc_maybe_show_downsell( $show_downsell, $order_id, $scp )
+{
+    if ( isset( $_GET['sc-oto-2'] ) ) {
+        return false;
+    }
+    
+    if ( $scp->upsell_path ) {
+        $offer = ( isset( $_GET['step'] ) ? intval( $_GET['step'] ) : 1 );
+        if ( sc_get_upsell( $offer, $scp->upsell_path, 'downsell' ) ) {
+            return true;
+        }
+        return false;
+    }
+    
+    return $show_downsell;
+}
+
 function sc_setup_product( $id )
 {
-    if ( !$id || get_post_type( $id ) != 'sc_product' ) {
+    $post_types = (array) apply_filters( 'sc_product_post_type', 'sc_product' );
+    if ( !$id || !in_array( get_post_type( $id ), $post_types ) ) {
         return;
     }
     $default_atts = array(
@@ -2506,6 +3031,7 @@ function sc_setup_product( $id )
     
     }
     $arr['single_plan'] = ( count( $arr['pay_options'] ) > 1 ? false : true );
+    $arr['confirmation'] = $arr['confirmation'] ?? 'message';
     
     if ( $arr['confirmation'] == 'page' ) {
         $arr['thanks_url'] = get_permalink( $arr['confirmation_page'] );
@@ -2530,91 +3056,103 @@ function sc_setup_product( $id )
         }
     }
     
-    // set upsell links to thank you page by default
-    $arr['us_accept_url'] = $arr['us_decline_url'] = $arr['thanks_url'];
-    
-    if ( isset( $arr['downsell'] ) ) {
-        /* 
-        upsell 2 visibility rules
-        always:       yes = downsell, no = downsell
-        us1 accepted: yes = downsell, no = thanks
-        us1 declined: yes = thanks, no = downsell
-        */
-        // set decline link to something else if downsell is display always or upsell declined
-        if ( !isset( $arr['ds_display'] ) || $arr['ds_display'] == 'declined' ) {
-            
-            if ( !isset( $arr['ds_type'] ) ) {
-                $arr['us_decline_url'] = get_permalink( $arr['ID'] );
-            } else {
-                switch ( $arr['ds_type'] ) {
-                    case 'template':
-                        $arr['us_decline_url'] = get_permalink( $arr['ds_template'] );
-                        break;
-                    case 'page':
-                        $arr['us_decline_url'] = get_permalink( $arr['ds_page'] );
-                        break;
-                    default:
-                        $arr['us_decline_url'] = get_permalink( $arr['ID'] );
-                        break;
-                }
-            }
-        
-        }
-        // set accept link to something else if downsell is display always or upsell accepted
-        if ( !isset( $arr['ds_display'] ) || $arr['ds_display'] == 'accepted' ) {
-            
-            if ( !isset( $arr['ds_type'] ) ) {
-                $arr['us_decline_url'] = get_permalink( $arr['ID'] );
-            } else {
-                switch ( $arr['ds_type'] ) {
-                    case 'template':
-                        $arr['us_accept_url'] = get_permalink( $arr['ds_template'] );
-                        break;
-                    case 'page':
-                        $arr['us_accept_url'] = get_permalink( $arr['ds_page'] );
-                        break;
-                    default:
-                        $arr['us_accept_url'] = get_permalink( $arr['ID'] );
-                        break;
-                }
-            }
-        
-        }
-    }
-    
     $arr['form_action'] = $arr['thanks_url'];
-    if ( isset( $arr['upsell'] ) ) {
+    $arr['upsell'] = false;
+    // backwards compatibility
+    
+    if ( isset( $arr['upsell_path'] ) && get_post_type( intval( $arr['upsell_path'] ) ) == 'sc_us_path' ) {
+        $arr['upsell'] = true;
+        // set upsell links to thank you page by default
+        $arr['us_accept_url'] = $arr['us_decline_url'] = $arr['thanks_url'];
+        $path = sc_setup_upsells( intval( $arr['upsell_path'] ) );
+        $arr['upsell_path'] = $path;
         
-        if ( !isset( $arr['us_type'] ) ) {
-            $arr['form_action'] = get_permalink( $arr['ID'] );
+        if ( $path && ($upsell = sc_get_upsell( 1, $path )) ) {
+            $arr['form_action'] = $upsell['url'];
         } else {
-            switch ( $arr['us_type'] ) {
-                case 'template':
-                    $arr['form_action'] = get_permalink( $arr['us_template'] );
-                    break;
-                case 'page':
-                    $arr['form_action'] = get_permalink( $arr['us_page'] );
-                    break;
-                default:
-                    $arr['form_action'] = get_permalink( $arr['ID'] );
-                    break;
-            }
+            $arr['upsell_path'] = false;
+            $arr['upsell'] = false;
         }
     
+    } else {
+        $arr['upsell_path'] = false;
     }
+    
     if ( $arr['confirmation'] == 'redirect' ) {
         $arr['redirect_url'] = $arr['redirect'];
     }
-    $arr['product_taxable'] = false;
+    $arr['button_icon'] = $arr['button_icon'] ?? false;
+    $arr['step1_button_icon'] = $arr['step1_button_icon'] ?? false;
+    $arr['button_icon'] = ( $arr['button_icon'] && $arr['button_icon'] == 'none' ? false : $arr['button_icon'] );
     
-    if ( get_option( '_sc_tax_enable', false ) ) {
-        $arr['tax_type'] = get_option( '_sc_tax_type', 'inclusive_tax' );
+    if ( $arr['button_icon'] ) {
+        $svg = plugin_dir_path( __FILE__ ) . 'vendor/font-awesome/svgs/solid/' . $arr['button_icon'];
         
-        if ( $arr['tax_type'] != 'non_tax' ) {
-            $arr['product_taxable'] = true;
-            $arr['price_show_with_tax'] = get_option( '_sc_price_show_with_tax', 'exclude_tax' );
+        if ( file_exists( $svg ) ) {
+            $svg_file = file_get_contents( $svg );
+            $arr['button_icon'] = $svg_file;
+        } else {
+            $arr['button_icon'] = false;
         }
     
+    }
+    
+    $arr['step1_button_icon'] = ( $arr['step1_button_icon'] && $arr['step1_button_icon'] == 'none' ? false : $arr['step1_button_icon'] );
+    
+    if ( $arr['step1_button_icon'] ) {
+        $svg = plugin_dir_path( __FILE__ ) . 'vendor/font-awesome/svgs/solid/' . $arr['step1_button_icon'];
+        
+        if ( file_exists( $svg ) ) {
+            $svg_file = file_get_contents( $svg );
+            $arr['step1_button_icon'] = $svg_file;
+        } else {
+            $arr['step1_button_icon'] = false;
+        }
+    
+    }
+    
+    $arr['product_taxable'] = $arr['product_taxable'] ?? 'tax';
+    
+    if ( $arr['product_taxable'] == 'non_tax' ) {
+        $arr['product_taxable'] = false;
+    } else {
+        
+        if ( get_option( '_sc_tax_enable', false ) && $arr['product_taxable'] == 'tax' ) {
+            $arr['tax_type'] = get_option( '_sc_tax_type', 'inclusive_tax' );
+            $arr['product_taxable'] = true;
+            $arr['price_show_with_tax'] = get_option( '_sc_price_show_with_tax', 'exclude_tax' );
+        } else {
+            $arr['product_taxable'] = false;
+        }
+    
+    }
+    
+    $terms = get_option( '_sc_terms_url' );
+    
+    if ( isset( $arr['terms_setting'] ) && !empty($arr['terms_setting']) ) {
+        
+        if ( $arr['terms_setting'] == 'off' ) {
+            $arr['terms_url'] = false;
+        } else {
+            $arr['terms_url'] = $arr['terms_url'] ?? $terms;
+        }
+    
+    } else {
+        $arr['terms_url'] = $terms;
+    }
+    
+    $privacy = get_option( '_sc_privacy_url' );
+    
+    if ( isset( $arr['privacy_setting'] ) && !empty($arr['privacy_setting']) ) {
+        
+        if ( $arr['privacy_setting'] == 'off' ) {
+            $arr['privacy_url'] = false;
+        } else {
+            $arr['privacy_url'] = $arr['privacy_url'] ?? $privacy;
+        }
+    
+    } else {
+        $arr['privacy_url'] = $privacy;
     }
     
     $arr['twostep_heading_1'] = ( isset( $arr['twostep_heading_1'] ) ? $arr['twostep_heading_1'] : __( 'Get it Now', 'ncs-cart' ) );
@@ -2626,7 +3164,7 @@ function sc_setup_product( $id )
     if ( isset( $arr['default_fields'] ) && empty($arr['default_fields']) ) {
         unset( $arr['default_fields'] );
     }
-    $arr = wp_parse_args( $arr, $default_atts );
+    $arr = apply_filters( 'studiocart_product', wp_parse_args( $arr, $default_atts ) );
     return (object) $arr;
 }
 
@@ -2667,6 +3205,9 @@ function remove_repeater_blank( $value )
 
 function sc_setup_order( $id, $array = false )
 {
+    if ( get_post_type( $id ) != 'sc_order' && get_post_type( $id ) != 'sc_subscription' ) {
+        return;
+    }
     $arr = array(
         'ID'            => $id,
         'invoice_total' => 0,
@@ -2721,24 +3262,27 @@ function sc_setup_order( $id, $array = false )
         
         }
     }
+    $arr['product_id'] = $arr['product_id'] ?? '';
     // add studiocart plan to order info
-    $option_id = $arr['option_id'] ?? $arr['plan_id'];
-    $arr['plan'] = studiocart_plan( $option_id, $arr['on_sale'], $arr['product_id'] );
-    if ( !isset( $arr['sub_end_date'] ) && $arr['sub_installments'] > 1 || $arr['sub_end_date'] == '1970-01-01' ) {
-        
-        if ( $arr['sub_installments'] > 1 ) {
-            $duration = $arr['sub_installments'] * $arr['sub_frequency'];
-            $cancel_at = $duration . ' ' . $arr['sub_interval'];
-            if ( $arr['sub_trial_days'] ) {
-                $cancel_at .= " + " . $arr['sub_trial_days'] . " day";
+    $option_id = $arr['option_id'] ?? $arr['plan_id'] ?? '';
+    $arr['plan'] = studiocart_plan( $option_id, isset( $arr['on_sale'] ), $arr['product_id'] );
+    if ( get_post_type( $arr['ID'] ) == 'sc_subscription' && $arr['plan'] && $arr['plan']->type == 'recurring' ) {
+        if ( !isset( $arr['sub_end_date'] ) && $arr['sub_installments'] > 1 || isset( $arr['sub_end_date'] ) && $arr['sub_end_date'] == '1970-01-01' ) {
+            
+            if ( $arr['sub_installments'] > 1 ) {
+                $duration = $arr['sub_installments'] * $arr['sub_frequency'];
+                $cancel_at = $duration . ' ' . $arr['sub_interval'];
+                if ( $arr['sub_trial_days'] ) {
+                    $cancel_at .= " + " . $arr['sub_trial_days'] . __( " day", 'ncs-cart' );
+                }
+                $arr['sub_end_date'] = date( "Y-m-d", strtotime( $arr['date'] . ' + ' . $cancel_at ) );
+                update_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
+            } else {
+                unset( $arr['sub_end_date'] );
+                delete_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
             }
-            $arr['sub_end_date'] = date( "Y-m-d", strtotime( $arr['date'] . ' + ' . $cancel_at ) );
-            update_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
-        } else {
-            unset( $arr['sub_end_date'] );
-            delete_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
+        
         }
-    
     }
     
     if ( get_post_type( $arr['ID'] ) == 'sc_subscription' && !isset( $arr['subscription_id'] ) ) {
@@ -2749,7 +3293,9 @@ function sc_setup_order( $id, $array = false )
         }
     }
     
-    $arr['customer_name'] = $arr['firstname'] . ' ' . $arr['lastname'];
+    if ( isset( $arr['firstname'] ) && isset( $arr['lastname'] ) ) {
+        $arr['customer_name'] = $arr['firstname'] . ' ' . $arr['lastname'];
+    }
     
     if ( !isset( $arr['product_name'] ) ) {
         $arr['product_name'] = sc_get_public_product_name( $arr['product_id'] );
@@ -2763,7 +3309,7 @@ function sc_setup_order( $id, $array = false )
         $option_id = $arr['bump_option_id'];
         unset( $arr['item_name'], $arr['bump_id'] );
     } else {
-        $option_id = $arr['option_id'] ?? $arr['plan_id'];
+        $option_id = $arr['option_id'] ?? $arr['plan_id'] ?? '';
     }
     
     $arr['product_name_plan'] = $arr['product_name'];
@@ -2771,28 +3317,32 @@ function sc_setup_order( $id, $array = false )
         $arr['product_name_plan'] .= ' - ' . $arr['item_name'];
     }
     // add studiocart plan to order info
-    $arr['plan'] = studiocart_plan( $option_id, $arr['on_sale'], $arr['product_id'] );
-    
-    if ( $arr['sub_end_date'] == '1970-01-01' ) {
-        $duration = $arr['sub_installments'] * $arr['sub_frequency'];
-        $cancel_at = $duration . ' ' . $arr['sub_interval'];
-        if ( $arr['sub_trial_days'] ) {
-            $cancel_at .= " + " . $arr['sub_trial_days'] . " day";
+    $arr['plan'] = studiocart_plan( $option_id, isset( $arr['on_sale'] ), $arr['product_id'] );
+    if ( get_post_type( $arr['ID'] ) == 'sc_subscription' && $arr['plan'] && $arr['plan']->type == 'recurring' ) {
+        
+        if ( isset( $arr['sub_end_date'] ) && $arr['sub_end_date'] == '1970-01-01' ) {
+            $duration = $arr['sub_installments'] * $arr['sub_frequency'];
+            $cancel_at = $duration . ' ' . $arr['sub_interval'];
+            if ( $arr['sub_trial_days'] ) {
+                $cancel_at .= " + " . $arr['sub_trial_days'] . __( " day", 'ncs-cart' );
+            }
+            $arr['sub_end_date'] = date( "Y-m-d", strtotime( $arr['date'] . ' + ' . $cancel_at ) );
+            update_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
         }
-        $arr['sub_end_date'] = date( "Y-m-d", strtotime( $arr['date'] . ' + ' . $cancel_at ) );
-        update_post_meta( $arr['ID'], '_sc_sub_end_date', $arr['sub_end_date'] );
-    }
     
+    }
     if ( $arr['status'] == 'initiated' || $arr['status'] == 'pending payment' ) {
         $arr['status'] = 'pending';
     }
+    $arr['amount'] = ( isset( $arr['amount'] ) && $arr['amount'] ? (double) $arr['amount'] : 0 );
+    $arr['invoice_total'] = ( $arr['invoice_total'] ? (double) $arr['invoice_total'] : 0 );
     $arr['main_offer_amt'] = $arr['amount'];
     // amount paid for main offer including discount
-    $arr['invoice_total'] += $arr['amount'];
+    $arr['invoice_total'] += (double) $arr['amount'];
     // total amount paid including child orders and discount
     $arr['invoice_subtotal'] = $arr['invoice_total'];
     if ( isset( $arr['discount_details'] ) ) {
-        $arr['invoice_subtotal'] += $arr['discount_details']['discount_amt'];
+        $arr['invoice_subtotal'] += (double) $arr['discount_details']['discount_amt'];
     }
     if ( isset( $arr['tax_amount'] ) ) {
         $arr['main_offer_amt'] -= $arr['tax_amount'];
@@ -2820,11 +3370,11 @@ function sc_setup_order( $id, $array = false )
     }
     
     if ( isset( $arr['plan_price'] ) && isset( $arr['discount_details']['discount_amt'] ) ) {
-        $arr['main_offer_amt'] = $arr['plan_price'] - $arr['discount_details']['discount_amt'];
+        $arr['main_offer_amt'] = floatval( $arr['plan_price'] ) - floatval( $arr['discount_details']['discount_amt'] );
     }
     if ( !empty($arr['order_bumps']) && is_array( $arr['order_bumps'] ) ) {
         foreach ( $arr['order_bumps'] as $order_bump ) {
-            $arr['main_offer_amt'] -= $order_bump['amount'];
+            $arr['main_offer_amt'] -= floatval( $order_bump['amount'] );
         }
     }
     
@@ -2835,7 +3385,7 @@ function sc_setup_order( $id, $array = false )
             $custom[$k]['qty'] = $fields[$k]['value'];
             $custom[$k]['price'] = $v;
             if ( !isset( $arr['plan_price'] ) ) {
-                $arr['main_offer_amt'] -= $v;
+                $arr['main_offer_amt'] -= floatval( $v );
             }
         }
         $arr['custom_prices'] = $custom;
@@ -2857,8 +3407,8 @@ function sc_setup_order( $id, $array = false )
             $arr['sub_payment'] .= $arr['sub_frequency'] . ' ' . sc_pluralize_interval( $arr['sub_interval'] );
             $arr['sub_payment_plain'] .= $arr['sub_frequency'] . ' ' . sc_pluralize_interval( $arr['sub_interval'] );
         } else {
-            $arr['sub_payment'] .= $arr['sub_interval'];
-            $arr['sub_payment_plain'] .= $arr['sub_interval'];
+            $arr['sub_payment'] .= __( $arr['sub_interval'], 'ncs-cart' );
+            $arr['sub_payment_plain'] .= __( $arr['sub_interval'], 'ncs-cart' );
         }
         
         $arr['sub_payment_terms'] = $arr['sub_payment'];
@@ -2974,7 +3524,7 @@ function sc_next_bill_time( $sub, $date = null )
     }
     
     $next = strtotime( $next_bill_date . "+" . $sub->sub_frequency . " " . $sub->sub_interval );
-    $old_next = get_post_meta( $post_id, '_sc_sub_next_bill_date', true );
+    $old_next = get_post_meta( $sub->ID, '_sc_sub_next_bill_date', true );
     return max( $next, $old_next );
 }
 
@@ -2985,9 +3535,15 @@ function studiocart_plan(
     $array = false
 )
 {
+    global  $scp ;
+    if ( !$option_id ) {
+        return false;
+    }
     
     if ( !$product_id ) {
-        global  $scp ;
+        if ( !$scp ) {
+            return false;
+        }
         $plans = $scp->pay_options;
     } else {
         $plans = get_post_meta( $product_id, '_sc_pay_options', true );
@@ -2997,81 +3553,86 @@ function studiocart_plan(
         return false;
     }
     foreach ( $plans as $val ) {
+        $val['stripe_plan_id'] = $val['stripe_plan_id'] ?? '';
+        $val['sale_stripe_plan_id'] = $val['sale_stripe_plan_id'] ?? '';
+        
         if ( $option_id == $val['option_id'] || $option_id == $val['stripe_plan_id'] || $option_id == $val['sale_stripe_plan_id'] ) {
             $option = $val;
+            break;
         }
+    
     }
     if ( !isset( $option ) || !$option ) {
         return false;
     }
-    if ( $sale == 'current' ) {
+    $option['product_type'] = $option['product_type'] ?? '';
+    if ( $sale === 'current' ) {
         $sale = sc_is_prod_on_sale( $product_id );
     }
     $sale = ( $sale ? 'sale_' : '' );
     $plan = array();
     $plan['type'] = ( $option['product_type'] == '' ? 'one-time' : $option['product_type'] );
     $plan['option_id'] = $option['option_id'];
-    $plan['name'] = $option[$sale . 'option_name'];
+    $plan['name'] = $option[$sale . 'option_name'] ?? '';
     $plan['stripe_id'] = $option[$sale . 'stripe_plan_id'];
     $plan['price'] = ( $option['product_type'] == 'free' ? 'free' : $option[$sale . 'price'] );
-    $plan['initial_payment'] = $plan['price'];
-    $plan['cancel_immediately'] = $option['cancel_immediately'];
+    $plan['initial_payment'] = (double) $plan['price'];
+    $plan['cancel_immediately'] = $option['cancel_immediately'] ?? '';
     $plan['tax_rate'] = $option['tax_rate'] ?? '';
     
-    if ( $option['product_type'] == 'free' ) {
-        $plan['price'] = 'free';
-    } elseif ( $option['product_type'] == 'pwyw' ) {
-        $plan['price'] = $option['pwyw_amount'];
+    if ( $plan['type'] == 'free' ) {
+        $plan['initial_payment'] = 0;
     } else {
-        $plan['price'] = $option[$sale . 'price'];
-    }
-    
-    
-    if ( $plan['type'] == 'recurring' ) {
-        $plan['installments'] = $option[$sale . 'installments'];
-        $plan['interval'] = $option[$sale . 'interval'];
-        $plan['frequency'] = $option[$sale . 'frequency'] ?? 1;
         
-        if ( $plan['trial_days'] ) {
-            $plan['next_bill_date'] = strtotime( date( "Y-m-d", strtotime( "+" . $plan['trial_days'] . " day" ) ) );
-        } else {
-            $plan['next_bill_date'] = strtotime( date( "Y-m-d", strtotime( "+" . $plan['frequency'] . " " . $plan['interval'] ) ) );
-        }
-        
-        
-        if ( $plan['installments'] > 1 ) {
-            $duration = $plan['installments'] * $plan['frequency'];
-            $cancel_at = $duration . ' ' . $plan['interval'];
+        if ( $plan['type'] == 'recurring' ) {
+            $plan['installments'] = $option[$sale . 'installments'];
+            $plan['interval'] = $option[$sale . 'interval'];
+            $plan['frequency'] = $option[$sale . 'frequency'] ?? 1;
+            $plan['trial_days'] = $plan['trial_days'] ?? '';
+            $plan['fee'] = $plan['fee'] ?? '';
+            
             if ( $plan['trial_days'] ) {
-                $cancel_at .= " + " . $plan['trial_days'] . " day";
+                $plan['next_bill_date'] = strtotime( date( "Y-m-d", strtotime( "+" . $plan['trial_days'] . " day" ) ) );
+            } else {
+                $plan['next_bill_date'] = strtotime( date( "Y-m-d", strtotime( "+" . $plan['frequency'] . " " . $plan['interval'] ) ) );
             }
-            $plan['cancel_at'] = strtotime( $cancel_at );
-            $plan['db_cancel_at'] = date( "Y-m-d", strtotime( $cancel_at ) );
-        } else {
-            $plan['cancel_at'] = null;
-            $plan['db_cancel_at'] = null;
+            
+            
+            if ( $plan['installments'] > 1 ) {
+                $duration = $plan['installments'] * $plan['frequency'];
+                $cancel_at = $duration . ' ' . $plan['interval'];
+                if ( $plan['trial_days'] ) {
+                    $cancel_at .= " + " . $plan['trial_days'] . " day";
+                }
+                $plan['cancel_at'] = strtotime( $cancel_at );
+                $plan['db_cancel_at'] = date( "Y-m-d", strtotime( $cancel_at ) );
+            } else {
+                $plan['cancel_at'] = null;
+                $plan['db_cancel_at'] = null;
+            }
+            
+            
+            if ( $plan['frequency'] > 1 ) {
+                $text = sc_format_price( $plan['price'] ) . ' / ' . $plan['frequency'] . ' ' . sc_pluralize_interval( $plan['interval'] );
+            } else {
+                $text = sc_format_price( $plan['price'] ) . ' / ' . $plan['interval'];
+            }
+            
+            $installments = $plan['installments'];
+            if ( $installments > 1 ) {
+                $text .= ' x ' . $installments;
+            }
+            if ( $plan['trial_days'] ) {
+                // (e.g. " with a 5-day free trial")
+                $text .= ' ' . sprintf( __( 'with a %s-day free trial', 'ncs-cart' ), $plan['trial_days'] );
+            }
+            if ( $plan['fee'] ) {
+                // (e.g. " and a $5 sign-up fee")
+                $text .= ' ' . sprintf( __( 'and a %s sign-up fee', 'ncs-cart' ), sc_format_price( $plan['fee'] ) );
+            }
+            $plan['text'] = $text;
         }
-        
-        
-        if ( $plan['frequency'] > 1 ) {
-            $text = sc_format_price( $plan['price'] ) . ' / ' . $plan['frequency'] . ' ' . sc_pluralize_interval( $plan['interval'] );
-        } else {
-            $text = sc_format_price( $plan['price'] ) . ' / ' . $plan['interval'];
-        }
-        
-        $installments = $plan['installments'];
-        if ( $installments > 1 ) {
-            $text .= ' x ' . $installments;
-        }
-        if ( $plan['trial_days'] ) {
-            // (e.g. " with a 5-day free trial")
-            $text .= ' ' . sprintf( __( 'with a %s-day free trial', 'ncs-cart' ), $plan['trial_days'] );
-        }
-        if ( $plan['fee'] ) {
-            // (e.g. " and a $5 sign-up fee")
-            $text .= ' ' . sprintf( __( 'and a %s sign-up fee', 'ncs-cart' ), sc_format_price( $plan['fee'] ) );
-        }
-        $plan['text'] = $text;
+    
     }
     
     $plan = apply_filters(
@@ -3095,7 +3656,7 @@ function sc_maybe_do_subscription_complete( $subscription_id )
     
     if ( $end_date == date( "Y-m-d" ) ) {
         $order_info = sc_setup_order( $subscription_id, $array = true );
-        sc_log_entry( $subscription_id, __( 'Subscription completed', 'ncs-cart' ) );
+        sc_log_entry( $subscription_id, __( 'Installment plan completed', 'ncs-cart' ) );
         sc_trigger_integrations( 'completed', $order_info );
         wp_update_post( array(
             'ID'          => $subscription_id,
@@ -3132,29 +3693,347 @@ if ( !function_exists( 'sc_filter_format_subcription_terms_text' ) ) {
         if ( !$terms ) {
             return $text;
         }
+        
         if ( $trial_days && $trial_days > 0 ) {
-            // (e.g. "5-day trial")
-            $terms .= ', ' . $trial_days . apply_filters( 'sc_plan_text_day_free_trial', __( '-day trial', 'ncs-cart' ) );
-        }
-        if ( $sign_up_fee && $sign_up_fee > 0 ) {
-            // (e.g. "$5 sign-up fee")
-            $terms .= ', ' . sc_format_price( $sign_up_fee ) . apply_filters( 'sc_plan_text_sign_up_fee', __( ' sign-up fee', 'ncs-cart' ) );
+            // (e.g. "with a 5-day trial")
+            $txt = __( 'with a %d-day trial', 'ncs-cart' );
+            $txt = apply_filters( 'sc_plan_text_day_free_trial', $txt );
+            $terms .= ' ' . sprintf( $txt, $trial_days );
         }
         
+        
+        if ( $sign_up_fee && floatval( $sign_up_fee ) > 0 ) {
+            // (e.g. "and a $5 sign-up fee")
+            $txt = __( 'and a %s sign-up fee', 'ncs-cart' );
+            $txt = apply_filters( 'sc_plan_text_sign_up_fee', $txt );
+            $terms .= ' ' . sprintf( $txt, sc_format_price( $sign_up_fee ) );
+        }
+        
+        
         if ( $discount && $discount_duration && $discount > 0 ) {
-            // (e.g. "Discount: 5% off for 3 months")
-            $terms .= '<br><strong>' . __( 'Discount:', 'ncs-cart' ) . ' </strong> ';
+            // (e.g. "Coupon: 5% off for 3 months")
+            $terms .= '<br><strong>' . __( 'Coupon:', 'ncs-cart' ) . ' </strong> ';
             $terms .= sprintf( __( '%s off for %d months', 'ncs-cart' ), sc_format_price( $discount ), $discount_duration );
         }
         
-        echo  $terms ;
+        return $terms;
     }
 
 }
+function sc_get_items_from_legacy_order( $order, $qty_col = true )
+{
+    $items = array();
+    
+    if ( $order->plan && $order->main_offer_amt ) {
+        $arr = array(
+            'product_id'   => $order->product_id,
+            'price_id'     => $order->option_id,
+            'item_type'    => 'main',
+            'product_name' => ( $order->quantity > 1 || $qty_col ? $order->product_name : sprintf( '%s x %s', $order->product_name, $order->quantity ) ),
+            'price_name'   => $order->item_name,
+            'total_amount' => $order->amount,
+            'tax_amount'   => $order->tax_amount,
+            'unit_price'   => $order->main_offer_amt / $order->quantity,
+            'quantity'     => intval( $order->quantity ),
+            'subtotal'     => $order->main_offer_amt,
+        );
+        
+        if ( $order->subscription_id ) {
+            $sub = new ScrtSubscription( $order->subscription_id );
+            
+            if ( $order->product_id == $sub->product_id ) {
+                $sub = $sub->get_data();
+                $arr['subscription_id'] = $sub['ID'];
+                $arr['sub_summary'] = apply_filters(
+                    'sc_format_subcription_order_detail',
+                    $sub['sub_payment_terms_plain'],
+                    $sub['sub_payment_terms_plain'],
+                    $sub['free_trial_days'],
+                    $sub['sign_up_fee'],
+                    $sub['sub_discount'],
+                    $sub['sub_discount_duration'],
+                    $order->plan
+                );
+            }
+        
+        }
+        
+        if ( $order->purchase_note ) {
+            $arr['purchase_note'] = $order->purchase_note;
+        }
+        $items[] = $arr;
+        if ( isset( $order->custom_prices ) ) {
+            foreach ( $order->custom_prices as $id => $price ) {
+                $field = $order->custom_fields[$id];
+                $arr = array(
+                    'product_id'   => $order->product_id,
+                    'price_id'     => $id,
+                    'item_type'    => 'line item',
+                    'product_name' => $order->product_name,
+                    'price_name'   => ( !$qty_col && $field['value'] > 1 ? $field['label'] : sprintf( '%s x %s', $field['label'], $field['value'] ) ),
+                    'unit_price'   => $price / $field['value'],
+                    'quantity'     => intval( $field['value'] ),
+                    'subtotal'     => $price,
+                    'total_amount' => $price,
+                );
+                $items[] = $arr;
+            }
+        }
+        
+        if ( !empty($order->order_bumps) && is_array( $order->order_bumps ) ) {
+            foreach ( $order->order_bumps as $order_bump ) {
+                $arr = array(
+                    'product_id'   => $order_bump['id'],
+                    'price_id'     => $order_bump['plan']->option_id ?? 'bump',
+                    'item_type'    => 'bump',
+                    'product_name' => $order_bump['name'],
+                    'price_name'   => $order_bump['plan']->name ?? __( 'Order Bump', 'ncs-cart' ),
+                    'unit_price'   => $order_bump['amount'],
+                    'quantity'     => 1,
+                    'subtotal'     => $order_bump['amount'],
+                    'total_amount' => $order_bump['amount'],
+                );
+                
+                if ( isset( $order_bump['plan'] ) && isset( $order_bump['plan']->type ) && $order_bump['plan']->type == 'recurring' && $order->subscription_id ) {
+                    $sub = new ScrtSubscription( $order->subscription_id );
+                    
+                    if ( $order_bump['id'] == $sub->product_id ) {
+                        $arr['subscription_id'] = $order->subscription_id;
+                        $sub = $sub->get_data();
+                        $arr['sub_summary'] = apply_filters(
+                            'sc_format_subcription_order_detail',
+                            $sub['sub_payment_terms_plain'],
+                            $sub['sub_payment_terms_plain'],
+                            $sub['free_trial_days'],
+                            $sub['sign_up_fee'],
+                            $sub['sub_discount'],
+                            $sub['sub_discount_duration'],
+                            $order->plan
+                        );
+                    }
+                
+                }
+                
+                if ( $order_bump['purchase_note'] ) {
+                    $arr['purchase_note'] = $order_bump['purchase_note'];
+                }
+                $items[] = $arr;
+            }
+        } else {
+            
+            if ( isset( $order->bump_id ) && $order->bump_id ) {
+                $arr = array(
+                    'product_id'   => $order->bump_id,
+                    'price_id'     => 'bump',
+                    'item_type'    => 'bump',
+                    'product_name' => sc_get_public_product_name( $order->bump_id ),
+                    'price_name'   => __( 'Order Bump', 'ncs-cart' ),
+                    'unit_price'   => $order->bump_amt,
+                    'quantity'     => 1,
+                    'subtotal'     => $order->bump_amt,
+                    'total_amount' => $order->bump_amt,
+                );
+                $items[] = $arr;
+            }
+        
+        }
+        
+        return $items;
+    }
+    
+    return false;
+}
+
+function sc_get_order_items( $order, $qty_col = true, $show_hidden = false )
+{
+    if ( is_numeric( $order ) ) {
+        $order = new ScrtOrder( $order );
+    }
+    $sub = false;
+    
+    if ( $order->subscription_id ) {
+        $sub = new ScrtSubscription( $order->subscription_id );
+        $sub = $sub->get_data();
+    }
+    
+    $itemList = array();
+    // add order items
+    
+    if ( $orderItems = $order->get_items() ) {
+        foreach ( $orderItems as $item ) {
+            if ( !$show_hidden && $item->item_type == 'bundled' ) {
+                continue;
+            }
+            $item = $item->get_data();
+            if ( !$qty_col && $item['quantity'] > 1 ) {
+                $item['product_name'] = sprintf( '%s x %s', $item['product_name'], $item['quantity'] );
+            }
+            
+            if ( $sub && $sub['product_id'] == $item['product_id'] && $sub['option_id'] == $item['price_id'] ) {
+                $item['subscription_id'] = $sub['id'];
+                $item['sub_summary'] = apply_filters(
+                    'sc_format_subcription_order_detail',
+                    $sub['sub_payment_terms_plain'],
+                    $sub['sub_payment_terms_plain'],
+                    $sub['free_trial_days'],
+                    $sub['sign_up_fee'],
+                    $sub['sub_discount'],
+                    $sub['sub_discount_duration'],
+                    $order->plan
+                );
+                $sub = false;
+            }
+            
+            $itemList[] = $item;
+        }
+    } else {
+        if ( $arr = sc_get_items_from_legacy_order( $order, $qty_col ) ) {
+            // add main product
+            $itemList = array_merge( $itemList, $arr );
+        }
+    }
+    
+    return $itemList;
+}
+
+function sc_get_item_list( $order_id, $full = true, $qty_col = false )
+{
+    $order = apply_filters( 'studiocart_order', new ScrtOrder( $order_id ) );
+    $itemList['items'] = sc_get_order_items( $order, $qty_col );
+    $total = $order->amount;
+    $subtotal = $order->pre_tax_amount;
+    $shipping_amount = $order->shipping_amount;
+    if ( $order->coupon && $order->coupon['discount_amount'] ) {
+        $itemList['discounts'][] = array(
+            'product_name' => sprintf( __( 'Coupon: %s', 'ncs-cart' ), '<span class="sc-badge">' . strtoupper( $order->coupon_id ) . '</span>' ),
+            'total_amount' => $order->coupon['discount_amount'],
+            'subtotal'     => $order->coupon['discount_amount'],
+            'item_type'    => 'discount',
+        );
+    }
+    // child orders
+    if ( $full ) {
+        
+        if ( $children = $order->get_children( true ) ) {
+            foreach ( $children as $child ) {
+                $list = sc_get_order_items( $child );
+                $total += $child->amount;
+                $subtotal += $child->pre_tax_amount;
+                $shipping_amount += $child->shipping_amount;
+                $order->shipping_tax += $child->shipping_tax;
+                if ( $child->coupon && $child->coupon['discount_amount'] ) {
+                    $itemList['discounts'][] = array(
+                        'product_name' => sprintf( __( 'Coupon: %s', 'ncs-cart' ), '<span class="sc-badge">' . strtoupper( $child->coupon_id ) . '</span>' ),
+                        'total_amount' => $child->coupon['discount_amount'],
+                        'subtotal'     => $child->coupon['discount_amount'],
+                        'item_type'    => 'discount',
+                    );
+                }
+            }
+            $itemList['items'] = array_merge( $itemList['items'], $list );
+            
+            if ( !is_object( $order->tax_data ) && is_object( $child->tax_data ) ) {
+                $order->tax_data = $child->tax_data;
+                $order->tax_desc = $child->tax_desc;
+                $order->tax_rate = $child->tax_rate;
+            }
+        
+        }
+    
+    }
+    $itemList['subtotal'] = array(
+        'product_name' => __( 'Subtotal', 'ncs-cart' ),
+        'total_amount' => $subtotal,
+        'subtotal'     => $subtotal,
+        'item_type'    => 'subtotal',
+    );
+    
+    if ( $shipping_amount ) {
+        $itemList['shipping'] = array(
+            'product_name' => __( 'Shipping', 'ncs-cart' ),
+            'total_amount' => $shipping_amount,
+            'subtotal'     => $shipping_amount,
+            'item_type'    => 'shipping',
+        );
+        if ( $order->shipping_tax ) {
+            $itemList['shipping']['tax_amount'] = $order->shipping_tax;
+        }
+    }
+    
+    
+    if ( $full ) {
+        $tax_amount = 0;
+        foreach ( $itemList as $key => $group ) {
+            
+            if ( $key == 'items' ) {
+                foreach ( $group as $k => $item ) {
+                    if ( isset( $item['tax_amount'] ) ) {
+                        $tax_amount += floatval( $item['tax_amount'] );
+                    }
+                }
+            } else {
+                if ( method_exists( $order, 'get_items' ) && isset( $group['tax_amount'] ) ) {
+                    $tax_amount += floatval( $group['tax_amount'] );
+                }
+            }
+        
+        }
+    } else {
+        $tax_amount = floatval( $order->tax_amount );
+    }
+    
+    
+    if ( is_object( $order->tax_data ) ) {
+        $redeem_tax = false;
+        
+        if ( isset( $order->tax_data->redeem_vat ) && $order->tax_data->redeem_vat ) {
+            $redeem_tax = true;
+            
+            if ( $order->tax_data->type != 'inclusive' ) {
+                $order->tax_amount = 0;
+                $order->tax_rate = 0;
+            }
+        
+        }
+        
+        $order->tax_rate .= '%';
+        if ( $tax_amount && $order->tax_data->type == 'inclusive' ) {
+            $order->tax_rate .= ' ' . __( 'incl.', 'ncs-cart' );
+        }
+        
+        if ( $order->tax_data->type == 'inclusive' && $redeem_tax ) {
+            $title = __( get_option( '_sc_vat_reverse_charge', "VAT Reversal" ), 'ncs-cart' );
+        } else {
+            
+            if ( $tax_amount ) {
+                $title = __( $order->tax_desc . ' (' . $order->tax_rate . ')', 'ncs-cart' );
+            } else {
+                $title = $order->tax_desc;
+            }
+        
+        }
+        
+        $itemList['tax'] = array(
+            'product_name' => $title,
+            'total_amount' => $tax_amount,
+            'subtotal'     => $tax_amount,
+            'item_type'    => 'tax',
+        );
+    }
+    
+    $itemList['total'] = array(
+        'product_name' => __( 'Total', 'ncs-cart' ),
+        'total_amount' => $total,
+        'subtotal'     => $total,
+        'item_type'    => 'total',
+    );
+    return $itemList;
+}
+
 if ( !function_exists( 'sc_order_details' ) ) {
     function sc_order_details( $order_id )
     {
-        $order = new ScrtOrder( $order_id );
+        $order = apply_filters( 'studiocart_order', new ScrtOrder( $order_id ) );
         $order = (object) $order->get_data();
         if ( isset( $order->main_offer ) ) {
             // backwards compatibility
@@ -3167,98 +4046,93 @@ if ( !function_exists( 'sc_order_details' ) ) {
         _e( "Order Details", "ncs-cart" );
         ?></h3>
         <div class="sc-order-table">
-            <div class="item"><strong><?php 
+            <div class="item sc-heading"><strong><?php 
         _e( "Product", "ncs-cart" );
         ?></strong></div>
-            <div class="order-total"><strong><?php 
+            <div class="order-total sc-heading"><strong><?php 
         _e( "Price", "ncs-cart" );
         ?></strong></div>
-
-            <div class="item"><?php 
-        echo  $order->product_name ;
-        ?>
+            
             <?php 
         
-        if ( $order->subscription_id && $order->plan->type == 'recurring' ) {
-            echo  '<br><small>' ;
+        if ( $order->subscription_id ) {
             $sub = new ScrtSubscription( $order->subscription_id );
-            $terms = '';
-            //var_dump($sub);
-            
-            if ( $sub->sub_frequency > 1 ) {
-                $terms .= sprintf(
-                    __( '%s every %s %s', 'ncs-cart' ),
-                    sc_format_price( $sub->sub_amount ),
-                    $sub->sub_frequency,
-                    sc_pluralize_interval( $sub->sub_interval )
-                );
-            } else {
-                $terms .= sc_format_price( $sub->sub_amount ) . ' / ' . $sub->sub_interval;
-            }
-            
-            $installments = $sub->sub_installments;
-            if ( $installments > 1 ) {
-                $terms .= ' x ' . $installments;
-            }
-            $text = $terms;
+            $subarr = $sub->get_data();
+            $text = $subarr['sub_payment_terms'];
             if ( isset( $sub->free_trial_days ) && $sub->free_trial_days > 0 ) {
                 // (e.g. " with a 5-day free trial")
                 $text .= ', ' . sprintf( __( '%s-day trial', 'ncs-cart' ), $sub->free_trial_days );
             }
             if ( isset( $sub->sign_up_fee ) && $sub->sign_up_fee > 0 ) {
-                //$total += $sub->sign_up_fee;
                 // (e.g. " and a $5 sign-up fee")
                 $text .= ', ' . sprintf( __( '%s sign-up fee', 'ncs-cart' ), sc_format_price( $sub->sign_up_fee ) );
             }
             
             if ( isset( $sub->sub_discount_duration ) ) {
-                // (e.g. "Discount: 5% off for 3 months")
-                $text .= '<br><strong>' . __( 'Discount:', 'ncs-cart' ) . ' </strong> ';
+                // (e.g. "Coupon: 5% off for 3 months")
+                $text .= '<br><strong>' . __( 'Coupon:', 'ncs-cart' ) . ' </strong> ';
                 $text .= sprintf( __( '%s off for %d months', 'ncs-cart' ), sc_format_price( $sub->sub_discount ), $sub->sub_discount_duration );
+                $text = apply_filters(
+                    'sc_format_subcription_order_detail',
+                    $text,
+                    $subarr['sub_payment_terms'],
+                    $sub->free_trial_days,
+                    $sub->sign_up_fee,
+                    $sub->sub_discount,
+                    $sub->sub_discount_duration,
+                    $order->plan
+                );
             }
-            
-            echo  apply_filters(
-                'sc_format_subcription_order_detail',
-                $text,
-                $terms,
-                $sub->free_trial_days,
-                $sub->sign_up_fee,
-                $sub->sub_discount,
-                $sub->sub_discount_duration
-            ) ;
+        
         }
         
-        echo  '</small>' ;
+        ?>
+            
+            <div class="item">
+                <?php 
+        echo  '<strong>' . $order->product_name . '</strong>' ;
+        ?>
+                <?php 
+        if ( $order->plan && $order->plan->type == 'recurring' ) {
+            echo  '<br><small>' . $text . '</small>' ;
+        }
+        ?>
+                <?php 
+        if ( $order->purchase_note ) {
+            echo  '<br><span class="sc-purchase-note">' . $order->purchase_note . '</span>' ;
+        }
         ?>
             </div>
+            
             <div class="order-total">
                 <?php 
         
-        if ( $order->main_offer_amt == 0 && !isset( $order->subscription_id ) ) {
+        if ( $order->main_offer_amt == 0 && !$order->subscription_id ) {
             _e( "Free", "ncs-cart" );
         } else {
             sc_formatted_price( $order->main_offer_amt );
         }
         
-        $total += $order->main_offer_amt;
+        $total += floatval( $order->main_offer_amt );
         ?>
             </div>
+            
             
             
             <?php 
         if ( isset( $order->custom_prices ) ) {
             foreach ( $order->custom_prices as $price ) {
                 ?>
-                <div class="item"><?php 
-                echo  $price['qty'] . ' ' . $price['label'] ;
-                ?></div>
+                <div class="item"><strong><?php 
+                echo  $price['label'] . ' x ' . $price['qty'] ;
+                ?></strong></div>
                 <div class="order-total">
                     <?php 
                 sc_formatted_price( $price['price'] );
                 ?>
                 </div>
                 <?php 
-                $total += $price['price'];
+                $total += floatval( $price['price'] );
                 ?>
             <?php 
             }
@@ -3272,16 +4146,28 @@ if ( !function_exists( 'sc_order_details' ) ) {
                 <?php 
             foreach ( $order->order_bumps as $order_bump ) {
                 ?>
-                    <div class="item"><?php 
-                echo  $order_bump['name'] ;
-                ?></div>
+                    <div class="item">
+                        <?php 
+                echo  '<strong>' . $order_bump['name'] . '</strong>' ;
+                ?>
+                        <?php 
+                if ( $order->plan->type != 'recurring' && $order->subscription_id ) {
+                    echo  '<br><small>' . $text . '</small>' ;
+                }
+                ?>
+                        <?php 
+                if ( $order_bump['purchase_note'] ) {
+                    echo  '<br><span class="sc-purchase-note">' . $order_bump['purchase_note'] . '</span>' ;
+                }
+                ?>
+                    </div>
                     <div class="order-total">
                         <?php 
                 sc_formatted_price( $order_bump['amount'] );
                 ?>
                     </div>
                     <?php 
-                $total += $order_bump['amount'];
+                $total += floatval( $order_bump['amount'] );
                 ?>
                 <?php 
             }
@@ -3299,22 +4185,34 @@ if ( !function_exists( 'sc_order_details' ) ) {
                 <?php 
             foreach ( $order->order_child as $child_order ) {
                 $productAmount = floatval( $child_order['amount'] );
-                //if(!isset($child_order['subscription_id'])){
                 if ( isset( $child_order['tax_amount'] ) && !empty($child_order['tax_amount']) ) {
                     $productAmount -= floatval( $child_order['tax_amount'] );
                 }
-                //}
                 ?>
-                    <div class="item"><?php 
-                echo  get_the_title( $child_order['product_id'] ) ;
-                ?></div>
+                    <div class="item">
+						<?php 
+                echo  '<strong>' . $child_order['product_name'] . '</strong>' ;
+                
+                if ( $child_order['subscription_id'] ) {
+                    $sub = new ScrtSubscription( $child_order['subscription_id'] );
+                    $sub = $sub->get_data();
+                    echo  '<br><small>' . $sub['sub_payment_terms'] . '</small>' ;
+                }
+                
+                ?>
+                        <?php 
+                if ( $child_order['purchase_note'] ) {
+                    echo  '<br><span class="sc-purchase-note">' . $child_order['purchase_note'] . '</span>' ;
+                }
+                ?>
+					</div>
                     <div class="order-total">
                         <?php 
                 sc_formatted_price( $productAmount );
                 ?>
                     </div>
                     <?php 
-                $total += $productAmount;
+                $total += floatval( $productAmount );
                 
                 if ( isset( $child_order['tax_data'] ) && !empty($child_order['tax_amount']) ) {
                     if ( !$order->tax_amount ) {
@@ -3332,7 +4230,7 @@ if ( !function_exists( 'sc_order_details' ) ) {
             
             <?php 
         
-        if ( $order->tax_amount ) {
+        if ( is_object( $order->tax_data ) || $order->coupon_id && in_array( $order->coupon['type'], array( 'cart-percent', 'cart-fixed' ) ) ) {
             ?>
                 
                 <div class="item" style="border:0;"><strong><?php 
@@ -3341,21 +4239,81 @@ if ( !function_exists( 'sc_order_details' ) ) {
                 <div class="order-total" style="border:0;"><strong><?php 
             echo  sc_formatted_price( $total ) ;
             ?></strong></div>
-                 <br><br>
-                <div class="item"><?php 
-            _e( $order->tax_desc . ' (' . $order->tax_rate . '%)', 'ncs-cart' );
-            ?></div>
-                <div class="order-total">
-                    <?php 
-            sc_formatted_price( $order->tax_amount );
-            ?>
-                </div>
+                <br><br>
+            
                 <?php 
-            if ( !isset( $order->tax_data->type ) || $order->tax_data->type != 'inclusive' ) {
-                $total += $order->tax_amount;
+            
+            if ( $order->coupon_id && in_array( $order->coupon['type'], array( 'cart-percent', 'cart-fixed' ) ) ) {
+                ?>
+                    <div class="item"><?php 
+                _e( "Coupon: ", "ncs-cart" );
+                echo  $order->coupon_id ;
+                ?></div>
+                    <div class="order-total">- <?php 
+                echo  sc_formatted_price( $order->coupon['discount_amount'] ) ;
+                ?></div>
+                    <?php 
+                $total -= floatval( $order->coupon['discount_amount'] );
+                ?>
+                <?php 
             }
+            
             ?>
             
+                <?php 
+            
+            if ( is_object( $order->tax_data ) ) {
+                $redeem_tax = false;
+                
+                if ( isset( $order->tax_data->redeem_vat ) && $order->tax_data->redeem_vat ) {
+                    $redeem_tax = true;
+                    
+                    if ( $order->tax_data->type != 'inclusive' ) {
+                        $order->tax_amount = 0;
+                        $order->tax_rate = "0%";
+                    }
+                
+                }
+                
+                ?>
+                    <div class="item"><?php 
+                _e( $order->tax_desc . ' (' . $order->tax_rate . ')', 'ncs-cart' );
+                ?></div>
+					<div class="order-total">
+						<?php 
+                sc_formatted_price( $order->tax_amount );
+                ?>
+					</div>
+                    <?php 
+                
+                if ( is_countable( $order->tax_data ) && $order->tax_data->type == 'inclusive' && $redeem_tax ) {
+                    ?>
+                        <div class="item"><?php 
+                    _e( get_option( '_sc_vat_reverse_charge', "VAT Reversal" ), 'ncs-cart' );
+                    ?></div>
+                        <div class="order-total">
+                            -<?php 
+                    sc_formatted_price( $order->tax_amount );
+                    ?>
+                        </div>
+                    <?php 
+                }
+                
+                ?>
+					<?php 
+                if ( !isset( $order->tax_data->type ) || $order->tax_data->type != 'inclusive' && !$redeem_tax ) {
+                    $total += floatval( $order->tax_amount );
+                }
+                ?>
+                    <?php 
+                if ( !isset( $order->tax_data->type ) || $order->tax_data->type == 'inclusive' && $redeem_tax ) {
+                    $total -= floatval( $order->tax_amount );
+                }
+                ?>
+            	<?php 
+            }
+            
+            ?>
               
             <?php 
         }
@@ -3387,22 +4345,50 @@ if ( !function_exists( 'sc_order_details' ) ) {
 add_shortcode( 'sc_order_detail', 'sc_order_detail' );
 function sc_order_detail( $atts )
 {
+    $oto = intval( $_GET['sc-oto'] ?? 0 );
+    $oto2 = intval( $_GET['sc-oto-2'] ?? 0 );
+    $step = intval( $_GET['step'] ?? 1 );
+    $order = false;
+    // main order
     
-    if ( isset( $_GET['sc-order'] ) ) {
-        $id = intval( $_GET['sc-order'] );
+    if ( isset( $_POST['sc_order_id'] ) || isset( $_GET['sc-order'] ) && !isset( $_GET['sc-oto'] ) ) {
+        $order_id = intval( $_POST['sc_order_id'] ?? $_GET['sc-order'] );
+        $order = new ScrtOrder( $order_id );
+        // downsell
     } else {
         
-        if ( isset( $_POST['sc_order_id'] ) ) {
-            $id = intval( $_POST['sc_order_id'] );
+        if ( $oto2 ) {
+            $order = new ScrtOrder( $oto2 );
         } else {
-            return false;
+            
+            if ( isset( $_GET['sc-oto'] ) && !$oto && $step > 1 ) {
+                $downsell = $order->get_downsell( $step );
+                if ( $downsell ) {
+                    $order = $downsell;
+                }
+                // upsell
+            } else {
+                if ( $oto ) {
+                    $order = new ScrtOrder( $oto );
+                }
+            }
+        
         }
     
     }
     
-    $order_info = (array) sc_setup_order( $id );
-    $str = '{' . $atts['field'] . '}';
-    return sc_personalize( $str, $order_info );
+    if ( !$order ) {
+        return;
+    }
+    $order_info = $order->get_data();
+    
+    if ( array_key_exists( $atts['field'], $order_info ) ) {
+        return $order_info[$atts['field']];
+    } else {
+        $str = '{' . $atts['field'] . '}';
+        return sc_personalize( $str, $order_info );
+    }
+
 }
 
 add_shortcode( 'sc_plan', 'sc_plan_detail' );
@@ -3430,6 +4416,198 @@ function sc_plan_detail( $atts )
 
 }
 
+add_shortcode( 'sc_product', 'sc_product_detail' );
+function sc_product_detail( $atts )
+{
+    global  $scp ;
+    
+    if ( isset( $atts['id'] ) && $atts['id'] ) {
+        $prod = sc_setup_product( $atts['id'] );
+    } else {
+        
+        if ( $scp ) {
+            $prod = $scp;
+        } else {
+            return;
+        }
+    
+    }
+    
+    extract( shortcode_atts( array(
+        'field' => 'name',
+    ), $atts ) );
+    
+    if ( $prod && $field == 'name' ) {
+        return sc_get_public_product_name( $prod->ID );
+    } else {
+        
+        if ( $prod && $field == 'limit' ) {
+            return $prod->{$field};
+        } else {
+            return '';
+        }
+    
+    }
+
+}
+
+function sc_test_order_data()
+{
+    $order_info = new ScrtOrder();
+    $order_info->id = '{order_id}';
+    $order_info->status = 'paid';
+    $order_info->product_name = '{product_name}';
+    $order_info->item_name = '{item_name}';
+    $order_info->plan = '{plan}';
+    $order_info->plan_id = '{plan_id}';
+    $order_info->option_id = '{option_id}';
+    $order_info->amount = '10.00';
+    $order_info->main_offer_amt = '10.00';
+    $order_info->pre_tax_amount = '{}';
+    $order_info->tax_amount = '1.00';
+    $order_info->subscription_id = 0;
+    $order_info->firstname = '{firstname}';
+    $order_info->lastname = '{lastname}';
+    $order_info->first_name = '{first_name}';
+    $order_info->last_name = '{last_name}';
+    $order_info->customer_name = '{customer_name}';
+    $order_info->email = '{email}';
+    $order_info->invoice_link = '{invoice_link}';
+    $order_info->phone = '{phone}';
+    $order_info->country = '{country}';
+    $order_info->address1 = '{address1}';
+    $order_info->address2 = '{address2}';
+    $order_info->city = '{city}';
+    $order_info->state = '{state}';
+    $order_info->zip = '{zip}';
+    $order_info->tax_desc = 'Tax';
+    $order_info->tax_rate = 1;
+    $order_info->tax_data = (object) array(
+        'type' => 'inclusive',
+    );
+    $order_info->refund_log = array( array(
+        'refundID' => '{last_refund_id}',
+        'date'     => date( 'Y-m-d' ),
+        'amount'   => '10.00',
+    ) );
+    $order_info = $order_info->get_data();
+    $order_info['date'] = '{date}';
+    return $order_info;
+}
+
+if ( !function_exists( 'sc_do_order_table' ) ) {
+    function sc_do_order_table( $type, $order )
+    {
+        
+        if ( $order['ID'] == '{order_id}' ) {
+            //var_dump(sc_get_item_list(773));
+            $order = (object) $order;
+            $order->id = $order->ID;
+            $items = array(
+                "items"    => array( array(
+                "product_name" => "{product_name}",
+                "quantity"     => "1",
+                "subtotal"     => "10",
+                "total_amount" => "10",
+                "tax_amount"   => 0,
+                "unit_price"   => 10,
+            ) ),
+                "subtotal" => array(
+                "product_name" => "Subtotal",
+                "subtotal"     => "10",
+                "total_amount" => "10",
+                "item_type"    => 'subtotal',
+            ),
+                "total"    => array(
+                "product_name" => "Total",
+                "subtotal"     => "10",
+                "total_amount" => "10",
+                "item_type"    => 'total',
+            ),
+            );
+            //var_dump($items );
+            $args = array(
+                'type'  => $type,
+                'items' => $items,
+                'order' => $order,
+                'sub'   => false,
+            );
+        } else {
+            $order = new ScrtOrder( $order['ID'] );
+            $order = apply_filters( 'studiocart_order', $order );
+            $args = array(
+                'type'  => $type,
+                'items' => sc_get_item_list( $order->id ),
+                'order' => $order,
+                'sub'   => $order->get_subscription(),
+            );
+        }
+        
+        ncs_helper()->renderTemplate( 'email/order-table', $args );
+    }
+
+}
+function sc_merge_tag_list()
+{
+    return array(
+        'site_name'           => __( 'Site Name', 'ncs-cart' ),
+        'customer_name'       => __( 'Customer Name', 'ncs-cart' ),
+        'customer_phone'      => __( 'Customer Phone', 'ncs-cart' ),
+        'customer_firstname'  => __( 'Customer First Name', 'ncs-cart' ),
+        'customer_lastname'   => __( 'Customer Last Name', 'ncs-cart' ),
+        'customer_email'      => __( 'Customer Email', 'ncs-cart' ),
+        'customer_address'    => __( 'Customer Address', 'ncs-cart' ),
+        'customer_address1'   => __( 'Customer Address Line 1', 'ncs-cart' ),
+        'customer_address2'   => __( 'Customer Address Line 2', 'ncs-cart' ),
+        'customer_city'       => __( 'Customer City', 'ncs-cart' ),
+        'customer_state'      => __( 'Customer State', 'ncs-cart' ),
+        'customer_zip'        => __( 'Customer Zip', 'ncs-cart' ),
+        'customer_country'    => __( 'Customer Country', 'ncs-cart' ),
+        'invoice_link'        => __( 'Invoice Link', 'ncs-cart' ),
+        'login'               => __( 'My Account/Login URL', 'ncs-cart' ),
+        'password'            => __( 'Customer Password', 'ncs-cart' ),
+        'username'            => __( 'Customer Username', 'ncs-cart' ),
+        'product_name'        => __( 'Main Product Name', 'ncs-cart' ),
+        'product_amount'      => __( 'Main Product Amount', 'ncs-cart' ),
+        'plan_name'           => __( 'Plan Name', 'ncs-cart' ),
+        'order_id'            => __( 'Order ID', 'ncs-cart' ),
+        'order_date'          => __( 'Order Date', 'ncs-cart' ),
+        'order_list'          => __( 'Order List', 'ncs-cart' ),
+        'order_inline_list'   => __( 'Inline Order List', 'ncs-cart' ),
+        'order_amount'        => __( 'Order Amount', 'ncs-cart' ),
+        'product_list'        => __( 'Product List', 'ncs-cart' ),
+        'product_inline_list' => __( 'Inline Product List', 'ncs-cart' ),
+        'custom_fields'       => __( 'Custom Fields', 'ncs-cart' ),
+        'refund_log'          => __( 'Refund Log', 'ncs-cart' ),
+        'last_refund_id'      => __( 'Last Refund ID', 'ncs-cart' ),
+        'last_refund_amount'  => __( 'Last Refund Amount', 'ncs-cart' ),
+        'last_refund_date'    => __( 'Last Refund Date', 'ncs-cart' ),
+        'next_bill_date'      => __( 'Next Bill Date', 'ncs-cart' ),
+    );
+}
+
+function sc_merge_tag_select()
+{
+    ?>
+    <select class="sc-insert-merge-tag">
+        <option value=''><?php 
+    esc_html_e( 'Insert Personalization Tag', 'ncs-cart' );
+    ?></option>
+        <?php 
+    foreach ( sc_merge_tag_list() as $tag => $description ) {
+        ?>
+        <option value="<?php 
+        echo  $tag ;
+        ?>"><?php 
+        echo  $description ;
+        ?></option>
+        <?php 
+    }
+    ?>    
+    </select>
+    <?php 
+}
+
 function sc_personalize( $str, $order_info, $filter = false )
 {
     if ( !$str ) {
@@ -3452,6 +4630,8 @@ function sc_personalize( $str, $order_info, $filter = false )
         'name'          => $order_info['firstname'] . ' ' . $order_info['lastname'],
         'email'         => $order_info['email'],
         'phone'         => $order_info['phone'],
+        'coupon_code'   => $order_info['coupon_id'] ?? '',
+        'invoice_link'  => $order_info['invoice_link_html'] ?? '',
         'customer_name' => $order_info['firstname'] . ' ' . $order_info['lastname'],
         'site_name'     => get_bloginfo( 'name' ),
         'studiocart'    => '<a href="https://studiocart.co" target="_blank" rel="noreferrer noopener">Studiocart</a>',
@@ -3473,26 +4653,41 @@ function sc_personalize( $str, $order_info, $filter = false )
         $field = str_replace( 'customer_', '', $customer_field );
         $replacements[$customer_field] = $order_info[$field] ?? "";
     }
-    if ( $login = get_option( '_my_account' ) ) {
-        $replacements['login'] = $login;
+    if ( $login = get_option( '_sc_myaccount_page_id' ) ) {
+        $replacements['login'] = get_permalink( $login );
     }
     if ( isset( $order_info['password'] ) ) {
         $replacements['password'] = $order_info['password'];
     }
+    
     if ( isset( $order_info['custom_fields'] ) ) {
+        $cf_data = '';
         foreach ( $order_info['custom_fields'] as $k => $v ) {
-            $val = ( isset( $v['value'] ) ? $v['value'] : ' ' );
-            $replacements['custom_' . $k] = $v['value'];
+            
+            if ( is_array( $v['value'] ) ) {
+                $value = array();
+                for ( $i = 0 ;  $i < count( $v['value'] ) ;  $i++ ) {
+                    $value[] = ( isset( $v['value_label'][$i] ) ? $v['value_label'][$i] : $v['value'][$i] );
+                }
+                $value = implode( ', ', $value );
+            } else {
+                $value = ( isset( $v['value_label'] ) ? $v['value_label'] : $v['value'] );
+            }
+            
+            $replacements['custom_' . $k] = $value;
+            $cf_data .= sprintf( '%s: %s<br><br>', $v['label'], $value );
         }
+        $replacements['custom_fields'] = $cf_data;
     }
+    
     if ( isset( $order_info['username'] ) ) {
         $replacements['username'] = $order_info['username'];
     }
     
     if ( $order_info['ID'] ) {
-        $replacements['product_name'] = sc_get_public_product_name( $order_info['product_id'] );
-        $replacements['plan_name'] = ( ($order_info['item_name'] = get_post_meta( $order_info['ID'], '_sc_item_name', true )) ? $order_info['item_name'] : '' );
-        $product_name = ( $order_info['item_name'] != '' ? sprintf( __( '%s - %s', 'ncs-cart' ), $replacements['product_name'], $order_info['item_name'] ) : $replacements['product_name'] );
+        $replacements['product_name'] = $order_info['product_name'] ?? sc_get_public_product_name( $order_info['product_id'] );
+        $replacements['plan_name'] = $order_info['item_name'] ?? get_post_meta( $order_info['ID'], '_sc_item_name', true );
+        $product_name = ( $replacements['plan_name'] != '' ? sprintf( __( '%s - %s', 'ncs-cart' ), $replacements['product_name'], $replacements['plan_name'] ) : $replacements['product_name'] );
         // with pay plan name
         $replacements['order_list'] = $product_name;
         $replacements['order_inline_list'] = $product_name;
@@ -3500,9 +4695,37 @@ function sc_personalize( $str, $order_info, $filter = false )
         $replacements['product_list'] = $replacements['product_name'];
         $replacements['product_inline_list'] = $replacements['product_name'];
         $replacements['order_id'] = $order_info['ID'];
+        $replacements['order_date'] = $order_info['date'] ?? '';
         $replacements['product_amount'] = sc_format_price( $order_info['amount'] );
         $replacements['order_amount'] = sc_format_price( $order_info['amount'] );
         $replacements['customer_address'] = sc_order_address( $order_info['ID'] );
+        
+        if ( isset( $order_info['sub_next_bill_date'] ) ) {
+            if ( !is_numeric( $order_info['sub_next_bill_date'] ) ) {
+                $order_info['sub_next_bill_date'] = strtotime( $order_info['sub_next_bill_date'] );
+            }
+            $replacements['next_bill_date'] = date_i18n( get_option( 'date_format' ), $order_info['sub_next_bill_date'] );
+        }
+        
+        $replacements['last_refund_id'] = $replacements['last_refund_amount'] = $replacements['last_refund_date'] = $replacements['refund_log'] = '';
+        
+        if ( isset( $order_info['refund_log'] ) && is_countable( $order_info['refund_log'] ) ) {
+            $i = 1;
+            foreach ( $order_info['refund_log'] as $log ) {
+                $replacements['refund_log'] .= sprintf( __( '%s refunded on %s', 'ncs-cart' ), sc_format_price( $log['amount'] ), sc_maybe_format_date( $log['date'] ) );
+                
+                if ( $i < count( $order_info['refund_log'] ) ) {
+                    $replacements['refund_log'] .= '<br>';
+                } else {
+                    $replacements['last_refund_id'] = $log['refundID'];
+                    $replacements['last_refund_amount'] = sc_format_price( $log['amount'] );
+                    $replacements['last_refund_date'] = sc_maybe_format_date( $log['date'] );
+                }
+                
+                $i++;
+            }
+        }
+        
         
         if ( !isset( $replacements['username'] ) && ($user_id = get_post_meta( $order_info['ID'], '_sc_user_account', true )) ) {
             $user = get_user_by( 'id', $user_id );
@@ -3529,8 +4752,8 @@ function sc_personalize( $str, $order_info, $filter = false )
             }
             $replacements['order_inline_list'] = implode( ', ', $products );
             $replacements['product_inline_list'] = implode( ', ', $products );
-            $replacements['bump_amt'] = sc_format_price( $total_bump_amt );
-            if ( $order_info['order_type'] != 'bump' ) {
+            $replacements['bump_amount'] = sc_format_price( $total_bump_amt );
+            if ( !isset( $order_info['order_type'] ) || $order_info['order_type'] != 'bump' ) {
                 $replacements['product_amount'] = sc_format_price( $order_info['amount'] - floatval( $total_bump_amt ) );
             }
         }
@@ -3544,7 +4767,7 @@ function sc_personalize( $str, $order_info, $filter = false )
                     $total_bump_amt = floatval( $total_bump_amt ) + floatval( $all_bump_amt[$j] );
                 }
             }
-            $replacements['bump_amt'] = sc_format_price( floatval( $total_bump_amt ) );
+            $replacements['bump_amount'] = sc_format_price( floatval( $total_bump_amt ) );
             if ( $order_info['order_type'] != 'bump' ) {
                 $replacements['product_amount'] = sc_format_price( $order_info['amount'] - floatval( $total_bump_amt ) );
             }
@@ -3564,10 +4787,17 @@ function sc_personalize( $str, $order_info, $filter = false )
     return str_replace( $search, $replace, $str );
 }
 
-function sc_localize_dt( $date = '' )
+function sc_localize_dt( $date = 'now' )
 {
-    $timezone = ( get_option( 'timezone_string' ) ?: '' );
-    return new DateTime( $date . ' ' . $timezone );
+    $timezone = ( get_option( 'timezone_string' ) ?: null );
+    
+    if ( $timezone ) {
+        $now = new DateTime( $date, new DateTimeZone( $timezone ) );
+    } else {
+        $now = new DateTime( $date, $timezone );
+    }
+    
+    return $now;
 }
 
 if ( !function_exists( 'sc_is_cart_closed' ) ) {
@@ -3600,6 +4830,10 @@ if ( !function_exists( 'sc_is_cart_closed' ) ) {
 if ( !function_exists( 'sc_is_prod_on_sale' ) ) {
     function sc_is_prod_on_sale( $prod_id = false )
     {
+        // editing/creating order manually
+        if ( isset( $_POST['_sc_item_name'] ) && isset( $_POST['on-sale'] ) && is_admin() && current_user_can( 'sc_manager_option' ) ) {
+            return true;
+        }
         
         if ( $prod_id ) {
             $scp = sc_setup_product( $prod_id );
@@ -3646,7 +4880,8 @@ if ( !function_exists( 'sc_get_user_subscriptions' ) ) {
             'post_type'      => 'sc_subscription',
             'post_status'    => $status,
             'fields'         => 'ids',
-            'meta_query'     => array( array(
+        );
+        $args['meta_query'][] = array(
             'relation' => 'OR',
             array(
             'key'   => '_sc_user_account',
@@ -3656,7 +4891,6 @@ if ( !function_exists( 'sc_get_user_subscriptions' ) ) {
             'key'   => '_sc_email',
             'value' => $user_info->user_email,
         ),
-        ) ),
         );
         
         if ( $type == 'installment' ) {
@@ -3689,15 +4923,51 @@ if ( !function_exists( 'sc_get_user_subscriptions' ) ) {
 
 }
 if ( !function_exists( 'sc_get_user_orders' ) ) {
-    function sc_get_user_orders( $user_id, $status = 'any', $order_id = 0 )
+    function sc_get_user_orders(
+        $user_id,
+        $status = array( 'paid', 'completed', 'refunded' ),
+        $order_id = 0,
+        $renewals = false,
+        $hide_free = false
+    )
     {
         $postnum = ( current_user_can( 'administrator' ) ? 15 : -1 );
         $user_info = get_userdata( $user_id );
+        $status_query = array(
+            'key'     => '_sc_status',
+            'value'   => $status,
+            'compare' => 'IN',
+        );
+        if ( $status == 'any' ) {
+            $status_query = array(
+                'key'     => '_sc_status',
+                'compare' => 'EXISTS',
+            );
+        }
         $args = array(
             'posts_per_page' => $postnum,
             'post_type'      => 'sc_order',
-            'post_status'    => 'paid',
-            'meta_query'     => array( array(
+            'post_status'    => 'any',
+            'meta_query'     => array(
+            'relation' => 'AND',
+            array(
+            'relation' => 'OR',
+            $status_query,
+            array(
+            'relation' => 'AND',
+            array(
+            'key'   => '_sc_status',
+            'value' => 'pending-payment',
+        ),
+            array(
+            'key'   => '_sc_pay_method',
+            'value' => 'cod',
+        ),
+        ),
+        ),
+        ),
+        );
+        $args['meta_query'][] = array(
             'relation' => 'OR',
             array(
             'key'   => '_sc_user_account',
@@ -3707,11 +4977,21 @@ if ( !function_exists( 'sc_get_user_orders' ) ) {
             'key'   => '_sc_email',
             'value' => $user_info->user_email,
         ),
-        ), array(
-            'key'     => '_sc_renewal_order',
-            'compare' => 'NOT EXISTS',
-        ) ),
         );
+        if ( $hide_free ) {
+            $args['meta_query'][] = array( array(
+                'key'     => '_sc_amount',
+                'value'   => 0,
+                'type'    => 'numeric',
+                'compare' => '>',
+            ) );
+        }
+        if ( !$renewals ) {
+            $args['meta_query'][] = array(
+                'key'     => '_sc_renewal_order',
+                'compare' => 'NOT EXISTS',
+            );
+        }
         $order_id = intval( $order_id );
         if ( $order_id > 0 ) {
             $args['post__in'] = (array) $order_id;
@@ -3721,7 +5001,8 @@ if ( !function_exists( 'sc_get_user_orders' ) ) {
         
         if ( !empty($posts) ) {
             foreach ( $posts as $post ) {
-                $orders[] = sc_setup_order( $post->ID, true );
+                $order = new ScrtOrder( $post->ID );
+                $orders[] = $order->get_data();
             }
             return $orders;
         }
@@ -3744,15 +5025,15 @@ if ( !function_exists( 'sc_get_orders' ) ) {
         
         if ( !empty($posts) ) {
             foreach ( $posts as $post ) {
-                $orders[] = array(
-                    'order_id'           => $post->ID,
-                    'order_status'       => get_post_meta( $post->ID, '_sc_status', true ),
-                    'order_amount'       => get_post_meta( $post->ID, '_sc_amount', true ),
-                    'customer_firstname' => get_post_meta( $post->ID, '_sc_firstname', true ),
-                    'customer_lastname'  => get_post_meta( $post->ID, '_sc_lastname', true ),
-                    'customer_email'     => get_post_meta( $post->ID, '_sc_email', true ),
-                    'product_id'         => get_post_meta( $post->ID, '_sc_product_id', true ),
-                );
+                
+                if ( $parsed_args['post_type'] == 'sc_subscription' ) {
+                    $order_info = new ScrtSubscription( $post->ID );
+                } else {
+                    $order_info = new ScrtOrder( $post->ID );
+                }
+                
+                $order_info = $order_info->get_data();
+                $orders[] = sc_webhook_order_body( $order_info, $args['post_status'] );
             }
             return $orders;
         }
@@ -3764,18 +5045,13 @@ if ( !function_exists( 'sc_get_orders' ) ) {
 if ( !function_exists( 'sc_get_order' ) ) {
     function sc_get_order( $id )
     {
-        $order = get_post( $id );
-        if ( !empty($order) && (get_post_type( $id ) == 'sc_order' || get_post_type( $id ) == 'sc_subscription') ) {
-            return [
-                'id'                 => $id,
-                'order_status'       => get_post_meta( $id, '_sc_status', true ),
-                'order_amt'          => get_post_meta( $id, '_sc_amount', true ),
-                'customer_firstname' => get_post_meta( $id, '_sc_firstname', true ),
-                'customer_lastname'  => get_post_meta( $id, '_sc_lastname', true ),
-                'customer_email'     => get_post_meta( $id, '_sc_email', true ),
-                'product_id'         => get_post_meta( $id, '_sc_product_id', true ),
-            ];
+        
+        if ( get_post_type( $id ) == 'sc_order' ) {
+            $order_info = new ScrtOrder( $id );
+            $order_info = $order_info->get_data();
+            return sc_webhook_order_body( $order_info );
         }
+        
         return null;
     }
 
@@ -3795,62 +5071,81 @@ if ( !function_exists( 'sc_translate_js' ) ) {
                 'refund_success'       => __( "Refund Successful", "ncs-cart" ),
                 'try_again'            => __( "Error: Please try again.", "ncs-cart" ),
                 'invalid_sub_id'       => __( "Invalid Subscriber ID", "ncs-cart" ),
+                'sub_cancel'           => __( "This subscription has been canceled.", "ncs-cart" ),
+                'sub_started'          => __( "Subscription resumed.", "ncs-cart" ),
+                'sub_paused'           => __( "This subscription has been paused.", "ncs-cart" ),
                 'confirm_cancel_sub'   => __( "Are you sure you wish to cancel this subscription? This action cannot be undone.", "ncs-cart" ),
+                'confirm_pause_sub'    => __( "Are you sure you wish to pause this subscription?", "ncs-cart" ),
+                'confirm_activate_sub' => __( "Are you sure you wish to resume this subscription?", "ncs-cart" ),
                 'sub_cancel'           => __( "This subscription has been canceled.", "ncs-cart" ),
                 'something_went_wrong' => __( "Something went wrong. Please try again.", "ncs-cart" ),
                 'list_renewed'         => __( "All lists successfully renewed", "ncs-cart" ),
+                'missing_required'     => __( "Required fields missing", "ncs-cart" ),
             );
+            foreach ( $return_data as $k => $v ) {
+                $return_data[$k] = apply_filters( 'sc_backend_message_' . $k, $v );
+            }
         } else {
+            
             if ( $js_script == "ncs-cart-public.js" ) {
                 //public/js/ncs-cart-public.js
                 $return_data = array(
-                    'sub_cancel'         => __( "This subscription has been canceled.", "ncs-cart" ),
-                    'confirm_cancel_sub' => __( "Are you sure you wish to cancel this subscription? This action cannot be undone.", "ncs-cart" ),
-                    'invalid_email'      => __( 'Enter a valid email', "ncs-cart" ),
-                    'invalid_phone'      => __( 'Enter a valid phone number', "ncs-cart" ),
-                    'invalid_pass'       => __( 'Use 8 or more characters with a mix of letters, numbers, and symbols', "ncs-cart" ),
-                    'field_required'     => __( 'This field is required', "ncs-cart" ),
-                    'username_exists'    => __( "This username already exists", "ncs-cart" ),
-                    'with_a'             => apply_filters( 'sc_plan_text_with_a', __( 'with a', 'ncs-cart' ) ),
-                    'day_free_trial'     => apply_filters( 'sc_plan_text_day_free_trial', __( '-day free trial', 'ncs-cart' ) ),
-                    'and'                => apply_filters( 'sc_plan_text_and_a', __( 'and a', 'ncs-cart' ) ),
-                    'sign_up_fee'        => apply_filters( 'sc_plan_text_sign_up_fee', __( 'sign-up fee', 'ncs-cart' ) ),
-                    'you_got'            => __( 'You got', 'ncs-cart' ),
-                    'off'                => __( 'off!', 'ncs-cart' ),
-                    'discount'           => __( 'Discount:', 'ncs-cart' ),
-                    'discount_off'       => __( 'off', 'ncs-cart' ),
-                    'forever'            => __( 'forever', 'ncs-cart' ),
-                    'expires'            => __( 'expires', 'ncs-cart' ),
-                    'day'                => __( 'day', 'ncs-cart' ),
-                    'days'               => __( 'days', 'ncs-cart' ),
-                    'week'               => __( 'week', 'ncs-cart' ),
-                    'weeks'              => __( 'weeks', 'ncs-cart' ),
-                    'month'              => __( 'month', 'ncs-cart' ),
-                    'months'             => __( 'months', 'ncs-cart' ),
-                    'year'               => __( 'year', 'ncs-cart' ),
-                    'years'              => __( 'years', 'ncs-cart' ),
+                    'empty_username'          => __( "You need to enter your email address to continue.", "ncs-cart" ),
+                    'invalid_email'           => __( "There are no users registered with this username or email address.", "ncs-cart" ),
+                    'invalidcombo'            => __( "There are no users registered with this username or email address.", "ncs-cart" ),
+                    'expiredkey'              => __( 'The password reset link you used is not valid anymore.', 'ncs-cart' ),
+                    'invalidkey'              => __( 'The password reset link you used is not valid anymore.', 'ncs-cart' ),
+                    'password_reset_mismatch' => __( "The two passwords you entered don't match.", 'ncs-cart' ),
+                    'password_reset_empty'    => __( "Please enter in a password.", 'ncs-cart' ),
+                    'empty_username'          => __( 'Please enter a username or password.', 'ncs-cart' ),
+                    'empty_password'          => __( 'Please enter a password to login.', 'ncs-cart' ),
+                    'invalid_username'        => __( "We don't have any users with that username or email address. Maybe you used a different one when signing up?", 'ncs-cart' ),
+                    'incorrect_password'      => __( "The password you entered wasn't quite right. <a href='%s'>Did you forget your password</a>?", 'ncs-cart' ),
+                    'sub_cancel'              => __( "This subscription has been canceled.", "ncs-cart" ),
+                    'sub_started'             => __( "Subscription resumed.", "ncs-cart" ),
+                    'sub_paused'              => __( "This subscription has been paused.", "ncs-cart" ),
+                    'confirm_cancel_sub'      => __( "Are you sure you wish to cancel this subscription? This action cannot be undone.", "ncs-cart" ),
+                    'confirm_pause_sub'       => __( "Are you sure you wish to pause this subscription?", "ncs-cart" ),
+                    'confirm_activate_sub'    => __( "Are you sure you wish to resume this subscription?", "ncs-cart" ),
+                    'invalid_email'           => __( 'Enter a valid email', "ncs-cart" ),
+                    'invalid_phone'           => __( 'Enter a valid phone number', "ncs-cart" ),
+                    'invalid_pass'            => __( 'Use 8 or more characters with a mix of letters, numbers, and symbols', "ncs-cart" ),
+                    'includes'                => __( 'includes', "ncs-cart" ),
+                    'included_in_price'       => __( 'Included In Price', "ncs-cart" ),
+                    'field_required'          => __( 'This field is required', "ncs-cart" ),
+                    'username_exists'         => __( "This username already exists", "ncs-cart" ),
+                    'with_a'                  => apply_filters( 'sc_plan_text_with_a', __( 'with a', 'ncs-cart' ) ),
+                    'day_free_trial'          => apply_filters( 'sc_plan_text_day_free_trial', __( '-day free trial', 'ncs-cart' ) ),
+                    'and'                     => apply_filters( 'sc_plan_text_and_a', __( 'and a', 'ncs-cart' ) ),
+                    'sign_up_fee'             => apply_filters( 'sc_plan_text_sign_up_fee', __( 'sign-up fee', 'ncs-cart' ) ),
+                    'processing'              => __( 'Processing', 'ncs-cart' ),
+                    'you_got'                 => __( 'You got', 'ncs-cart' ),
+                    'off'                     => __( 'off!', 'ncs-cart' ),
+                    'coupon'                  => __( 'Coupon:', 'ncs-cart' ),
+                    'discount_off'            => __( 'off', 'ncs-cart' ),
+                    'forever'                 => __( 'forever', 'ncs-cart' ),
+                    'expires'                 => __( 'expires', 'ncs-cart' ),
+                    'day'                     => __( 'day', 'ncs-cart' ),
+                    'days'                    => __( 'days', 'ncs-cart' ),
+                    'week'                    => __( 'week', 'ncs-cart' ),
+                    'weeks'                   => __( 'weeks', 'ncs-cart' ),
+                    'month'                   => __( 'month', 'ncs-cart' ),
+                    'months'                  => __( 'months', 'ncs-cart' ),
+                    'missing_required'        => __( "Required fields missing", "ncs-cart" ),
+                    'year'                    => __( 'year', 'ncs-cart' ),
+                    'years'                   => __( 'years', 'ncs-cart' ),
                 );
+                foreach ( $return_data as $k => $v ) {
+                    $return_data[$k] = apply_filters( 'sc_frontend_message_' . $k, $v );
+                }
             }
+        
         }
         
         return $return_data;
     }
 
 }
-function sc_show_downsell( $scp, $oto )
-{
-    if ( isset( $_GET['sc-oto-2'] ) || !isset( $scp ) ) {
-        return false;
-    }
-    
-    if ( !isset( $scp->ds_display ) || $scp->ds_display == 'declined' && $oto == 0 || $scp->ds_display == 'accepted' && $oto > 0 ) {
-        return true;
-    } else {
-        return false;
-    }
-
-}
-
 function sc_enabled_processors()
 {
     $processors = [];
@@ -3867,7 +5162,7 @@ function sc_enabled_processors()
     return implode( ', ', $processors );
 }
 
-function sc_payment_methods()
+function scrt_payment_methods()
 {
     global  $sc_stripe ;
     $payment_methods = [];
@@ -4023,20 +5318,12 @@ function sc_unsubscribe_customer()
     wp_die();
 }
 
-add_action(
-    'sc_cancel_subscription_event',
-    'sc_run_scheduled_cancellation',
-    10,
-    1
-);
-function sc_run_scheduled_cancellation( $sub )
-{
-    $sub->status = 'canceled';
-    $sub->sub_status = 'canceled';
-    $sub->store();
-}
-
-function sc_do_cancel_subscription( $sub, $sub_id = false, $now = true )
+function sc_do_cancel_subscription(
+    $sub,
+    $sub_id = false,
+    $now = true,
+    $echo = true
+)
 {
     global  $sc_stripe ;
     if ( is_numeric( $sub ) ) {
@@ -4095,8 +5382,14 @@ function sc_do_cancel_subscription( $sub, $sub_id = false, $now = true )
             }
         
         } catch ( \Exception $e ) {
-            echo  $e->getMessage() ;
-            //add custom message
+            
+            if ( $echo ) {
+                echo  $e->getMessage() ;
+                //add custom message
+            } else {
+                return $e->getMessage();
+            }
+        
         }
     }
     
@@ -4107,143 +5400,540 @@ function sc_do_cancel_subscription( $sub, $sub_id = false, $now = true )
         $sub_id,
         $now
     );
-    extract( $cancel_sub_data );
     
     if ( $canceled ) {
         $current_user = wp_get_current_user();
         //update status
-        $log_entry = sprintf( __( 'Subscription cancelled by %s', 'ncs-cart' ), esc_html( $current_user->user_login ) );
+        $log_entry = sprintf( __( 'Subscription canceled by %s', 'ncs-cart' ), esc_html( $current_user->user_login ) );
         sc_log_entry( $sub->id, $log_entry );
-        echo  'OK' ;
+        
+        if ( $echo ) {
+            echo  'OK' ;
+        } else {
+            return 'OK';
+        }
+    
     }
 
 }
 
-function sc_do_subscription_row( $subscription )
+function sc_order_refund( $data )
 {
-    $status = ( in_array( get_post_status( $subscription->ID ), [ 'pending-payment', 'initiated' ] ) ? 'pending' : get_post_status( $subscription->ID ) );
+    global  $wpdb ;
+    $postID = intval( $data['id'] );
+    $order = new ScrtOrder( $postID );
+    $prodID = intval( $order->product_id );
+    $data['refund_amount'] = $data['refund_amount'] ?? $order->amount;
+    do_action( 'before_sc_order_refund', $data );
     
-    if ( $status == 'completed' || $status == 'pending' || $status == 'canceled' ) {
-        $next = "--";
+    if ( $order->pay_method == 'free' || $order->pay_method == 'cod' ) {
+        $amount = $data['refund_amount'];
+        $order->refund_log( $amount, 'manual' );
     } else {
-        if ( !is_numeric( $subscription->sub_next_bill_date ) ) {
-            $subscription->sub_next_bill_date = strtotime( $subscription->sub_next_bill_date );
-        }
-        $next = date_i18n( get_option( 'date_format' ), $subscription->sub_next_bill_date );
-    }
-    
-    ?>
-    <tr>
-        <td><?php 
-    echo  $subscription->ID ;
-    ?></td>
-        <td><?php 
-    echo  $subscription->product_name ;
-    ?></td>
-        <td><?php 
-    echo  ucwords( $status ) ;
-    ?>
-            <?php 
-    
-    if ( $subscription->cancel_date && $status != 'canceled' && $next != '--' ) {
-        ?>
-                <br><small><?php 
-        printf( esc_html__( 'Cancels %s', 'ncs-cart' ), date( "m/d/y", strtotime( $next ) ) );
-        ?></small>
-            <?php 
-    }
-    
-    ?>    
-        </td>
-        <td><?php 
-    echo  ( $subscription->cancel_date ? '--' : $next ) ;
-    ?></td>
-        <td><?php 
-    echo  $subscription->sub_payment ;
-    ?></td>
         
-        <td>
-            <?php 
-    
-    if ( $status == 'pending' || $status == 'past_due' ) {
-        ?>
-            <?php 
-        /*<a href="javascript:void(0);" onclick="sc_payment_pay('<?php echo $subscription->ID; ?>','subscription');" >Pay</a>*/
-        ?>
-            <?php 
-    } else {
-        ?>
-            <a href="?sc-plan=<?php 
-        echo  $subscription->ID ;
-        ?>">Manage</a>
-            <?php 
-    }
-    
-    ?>
-        </td>
-    </tr> 
-    
-    <?php 
-    
-    if ( isset( $subscription->order_bump_subs ) ) {
-        ?>
-        <?php 
-        foreach ( $subscription->order_bump_subs as $k => $bump ) {
-            $bump = (array) $bump;
-            ?>
-
-            <tr>
-                <td><?php 
-            echo  $subscription->ID ;
-            ?></td>
-                <td><?php 
-            echo  $bump['name'] ;
-            ?></td>
-                <td><?php 
-            echo  ( isset( $bump['status'] ) ? ucwords( $bump['status'] ) : ucwords( $status ) ) ;
-            ?></td>
-                <td><?php 
-            echo  $next ;
-            ?></td>
-                <td><?php 
-            echo  sc_format_price( $bump['plan']->price ) ;
-            ?> / 
-                    <?php 
+        if ( !isset( $order->transaction_id ) ) {
+            return esc_html__( 'INVALID CHARGE ID', 'ncs-cart' );
+        } else {
             
-            if ( $bump['plan']->frequency > 1 ) {
-                echo  esc_html( $bump['plan']->frequency . ' ' . sc_pluralize_interval( $bump['plan']->interval ) ) ;
-            } else {
-                echo  esc_html( $bump['plan']->interval ) ;
-            }
-            
-            ?>
-                </td>
+            if ( $order->pay_method == 'stripe' ) {
+                //stripe
+                require_once plugin_dir_path( __FILE__ ) . 'vendor/autoload.php';
+                $gateway_mode = $data['mode'] ?? $order->gateway_mode;
+                $apikey = get_option( '_sc_stripe_' . sanitize_text_field( $gateway_mode ) . '_sk' );
+                if ( empty($apikey) ) {
+                    return esc_html__( 'Oops, Stripe ' . $gateway_mode . ' key missing!', 'ncs-cart' );
+                }
+                \Stripe\Stripe::setApiKey( $apikey );
+                try {
+                    $refund_amount = sc_price_in_cents( $data['refund_amount'] );
+                    $refund_args = array(
+                        'amount' => $refund_amount,
+                    );
+                    
+                    if ( substr( $order->transaction_id, 0, 2 ) == 'pi' ) {
+                        $refund_args['payment_intent'] = $order->transaction_id;
+                    } else {
+                        $refund_args['charge'] = $order->transaction_id;
+                    }
+                    
+                    $refund = \Stripe\Refund::create( $refund_args );
+                    
+                    if ( isset( $refund->id ) && $refund->status == "succeeded" ) {
+                        $order->refund_log( $data['refund_amount'], $refund->id );
+                    } else {
+                        return sprintf( 'Something went wrong, Stripe refund ID: %s and refund status: %s', $refund->id ?? '', $refund->status ?? '' );
+                    }
                 
-                <td>
-                    <?php 
-            
-            if ( $status == 'pending' || $status == 'past_due' ) {
-                ?>
-                    <?php 
-                /*<a href="javascript:void(0);" onclick="sc_payment_pay('<?php echo $subscription->ID; ?>','subscription');" >Pay</a>*/
-                ?>
-                    <?php 
+                } catch ( \Exception $e ) {
+                    return $e->getMessage();
+                    //add custom message
+                }
             } else {
-                ?>
-                    <a href="?sc-plan=<?php 
-                echo  $subscription->ID ;
-                ?>">Manage</a>
-                    <?php 
+                try {
+                    do_action( 'sc_order_refund_' . $order->pay_method, $data, $order );
+                } catch ( \Exception $e ) {
+                    return $e->getMessage();
+                    //add custom message
+                }
             }
-            
-            ?>
-                </td>
-
-            </tr>
-        <?php 
+        
         }
-        ?>
-    <?php 
+    
+    }
+    
+    update_post_meta( $postID, '_sc_refund_amount', $data['refund_amount'] );
+    $order->status = 'refunded';
+    $order->payment_status = 'refunded';
+    $order->store();
+    $current_user = wp_get_current_user();
+    $log_entry = __( 'Payment refunded by', 'ncs-cart' ) . ' ' . $current_user->user_login;
+    sc_log_entry( $postID, $log_entry );
+    
+    if ( $data['restock'] == 'YSE' ) {
+        sc_maybe_update_stock( $prodID, 'increase' );
+        update_post_meta( $postID, '_sc_refund_restock', 'YES' );
+    }
+    
+    return 'OK';
+}
+
+/**
+ * Pause-Restart Subscription
+ */
+add_action( 'wp_ajax_sc_pause_restart_subscription', 'sc_pause_restart_subscription' );
+function sc_pause_restart_subscription()
+{
+    global  $sc_stripe ;
+    $response = false;
+    // Verify nonce
+    
+    if ( !isset( $_POST['nonce'] ) ) {
+        esc_html_e( 'Oops, something went wrong, please try again later.', 'ncs-cart' );
+        die;
+    }
+    
+    $post_id = intval( $_POST['id'] );
+    $sub = new ScrtSubscription( $post_id );
+    $type = sanitize_text_field( $_POST['type'] );
+    $status = ( $type == 'started' ? 'active' : $type );
+    
+    if ( $sub->pay_method == 'stripe' ) {
+        //stripe
+        require_once plugin_dir_path( __FILE__ ) . '../includes/vendor/autoload.php';
+        $apikey = $sc_stripe['sk'];
+        \Stripe\Stripe::setApiKey( $apikey );
+        try {
+            $stripe = new \Stripe\StripeClient( $apikey );
+            $data = array(
+                'pause_collection' => array(
+                'behavior' => 'void',
+            ),
+            );
+            if ( $type == 'started' ) {
+                $data = array(
+                    'pause_collection' => '',
+                );
+            }
+            $stripesub = $stripe->subscriptions->update( $sub->subscription_id, $data );
+            $response = $stripesub->current_period_end;
+        } catch ( \Exception $e ) {
+            echo  $e->getMessage() ;
+            //add custom message
+        }
+    } else {
+        $response = apply_filters(
+            'sc_subscription_pause_restart',
+            $response,
+            $sub,
+            $type
+        );
+    }
+    
+    
+    if ( $response ) {
+        $current_user = wp_get_current_user();
+        //update status
+        $sub->status = $status;
+        $sub->sub_status = $status;
+        
+        if ( $type == 'paused' ) {
+            $log_entry = sprintf( __( 'Subscription paused by %s', 'ncs-cart' ), esc_html( $current_user->user_login ) );
+        } else {
+            if ( $sub->pay_method == 'stripe' ) {
+                $sub->sub_next_bill_date = $response;
+            }
+            $log_entry = sprintf( __( 'Subscription started by %s', 'ncs-cart' ), esc_html( $current_user->user_login ) );
+        }
+        
+        $sub->store();
+        sc_log_entry( $sub->id, $log_entry );
+        echo  'OK' ;
+        exit;
     }
 
+}
+
+/**
+ * Check if a CSV file is valid.
+ *
+ * @since 3.6.5
+ * @param string $file       File name.
+ * @param bool   $check_path If should check for the path.
+ * @return bool
+ */
+function sc_is_file_valid_csv( $file, $check_path = true )
+{
+    /**
+     * Filter check for CSV file path.
+     *
+     * @since 3.6.4
+     * @param bool   $check_import_file_path If requires file path check. Defaults to true.
+     * @param string $file                   Path of the file to be checked.
+     */
+    $check_import_file_path = apply_filters( 'woocommerce_csv_importer_check_import_file_path', true, $file );
+    if ( $check_path && $check_import_file_path && false !== stripos( $file, '://' ) ) {
+        return false;
+    }
+    /**
+     * Filter CSV valid file types.
+     *
+     * @since 3.6.5
+     * @param array $valid_filetypes List of valid file types.
+     */
+    $valid_filetypes = apply_filters( 'woocommerce_csv_import_valid_filetypes', array(
+        'csv' => 'text/csv',
+        'txt' => 'text/plain',
+    ) );
+    $filetype = wp_check_filetype( $file, $valid_filetypes );
+    if ( in_array( $filetype['type'], $valid_filetypes, true ) ) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Wrapper for set_time_limit to see if it is enabled.
+ *
+ * @since 2.6.0
+ * @param int $limit Time limit.
+ */
+function sc_set_time_limit( $limit = 0 )
+{
+    
+    if ( function_exists( 'set_time_limit' ) && false === strpos( ini_get( 'disable_functions' ), 'set_time_limit' ) && !ini_get( 'safe_mode' ) ) {
+        // phpcs:ignore PHPCompatibility.IniDirectives.RemovedIniDirectives.safe_modeDeprecatedRemoved
+        @set_time_limit( $limit );
+        // @codingStandardsIgnoreLine
+    }
+
+}
+
+add_action( 'wp_ajax_update_user_profile', 'update_user_profile' );
+function update_user_profile()
+{
+    $current_user = wp_get_current_user();
+    $response = array();
+    parse_str( $_POST['form_data'], $data );
+    if ( empty($data['first_name']) ) {
+        $response['error'] = __( 'Please enter first name.', "ncs-cart" );
+    }
+    
+    if ( empty($data['email']) ) {
+        $response['error'] = __( 'Please enter a valid email.', "ncs-cart" );
+    } else {
+        if ( !is_email( $data['email'] ) ) {
+            $response['error'] = __( 'Enter a valid email', "ncs-cart" );
+        }
+    }
+    
+    if ( !empty($data['password']) ) {
+        if ( $data['password'] != $data['new_password'] ) {
+            $response['error'] = __( 'Password and confirm password should match.', "ncs-cart" );
+        }
+    }
+    if ( isset( $response['error'] ) ) {
+        wp_send_json( $response );
+    }
+    if ( !empty($data['_sc_phone']) ) {
+        update_user_meta( $current_user->ID, '_sc_phone', sanitize_text_field( $data['_sc_phone'] ) );
+    }
+    $address = array(
+        'address1',
+        'address2',
+        'city',
+        'state',
+        'zip',
+        'country'
+    );
+    $subs = $plans = false;
+    
+    if ( !empty($data['sc-all-subscription-address']) ) {
+        $subs = sc_get_user_subscriptions( $current_user->ID, $status = 'active', $type = null );
+        $plans = sc_get_user_subscriptions( $current_user->ID, $status = 'active', $type = 'installment' );
+    }
+    
+    foreach ( $address as $field ) {
+        
+        if ( !empty($data['_sc_' . $field]) ) {
+            $val = sanitize_text_field( $data['_sc_' . $field] );
+            if ( $subs ) {
+                foreach ( $subs as $sub ) {
+                    update_post_meta( $sub->id, '_sc_' . $field, $val );
+                }
+            }
+            if ( $plans ) {
+                foreach ( $plans as $plan ) {
+                    update_post_meta( $plan->id, '_sc_' . $field, $val );
+                }
+            }
+            $field = ( $field == 'address1' ? 'address_1' : $field );
+            $field = ( $field == 'address2' ? 'address_2' : $field );
+            update_user_meta( $current_user->ID, '_sc_' . $field, $val );
+        } else {
+            
+            if ( $field == 'address2' ) {
+                delete_user_meta( $current_user->ID, '_sc_address_2' );
+                if ( $subs ) {
+                    foreach ( $subs as $sub ) {
+                        delete_post_meta( $sub->id, '_sc_' . $field );
+                    }
+                }
+                if ( $plans ) {
+                    foreach ( $plans as $plan ) {
+                        delete_post_meta( $plan->id, '_sc_' . $field );
+                    }
+                }
+            }
+        
+        }
+    
+    }
+    update_user_meta( $current_user->ID, '_sc_address', 1 );
+    wp_update_user( [
+        'ID'         => $current_user->ID,
+        'first_name' => $data['first_name'],
+        'last_name'  => $data['last_name'],
+        'user_email' => $data['email'],
+    ] );
+    
+    if ( !empty($data['password']) ) {
+        // Change password.
+        wp_set_password( $data['password'], $current_user->ID );
+        // Log-in again.
+        wp_set_auth_cookie( $current_user->ID );
+        wp_set_current_user( $current_user->ID );
+        do_action( 'wp_login', $current_user->user_login, $current_user );
+    }
+    
+    wp_send_json( [
+        'success' => true,
+        'message' => esc_html__( 'Profile details have been saved.', 'ncs-cart' ),
+    ] );
+}
+
+function sc_get_webhook_url( $payment_slug )
+{
+    $webhook_url_type = apply_filters( 'sc_webhook_url_type', '' );
+    
+    if ( $webhook_url_type == 'plain' ) {
+        $url = get_site_url() . '/?sc-api=' . $payment_slug;
+    } else {
+        $url = get_site_url() . '/sc-webhook/' . $payment_slug;
+    }
+    
+    return $url;
+}
+
+function is_studiocart()
+{
+    if ( get_post_type() == 'sc_product' || isset( $_POST['sc_purchase_amount'] ) || isset( $_GET['sc-plan'] ) || isset( $_GET['sc-order'] ) && isset( $_GET['step'] ) ) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Get Customers
+ */
+function sc_get_customers( $customer_id = 0 )
+{
+    global  $wpdb ;
+    
+    if ( $customer_id > 0 ) {
+        $result = $wpdb->get_results( "SELECT {$wpdb->prefix}posts.ID,{$wpdb->prefix}postmeta.meta_value FROM {$wpdb->prefix}posts INNER JOIN {$wpdb->prefix}postmeta ON ( {$wpdb->prefix}posts.ID = {$wpdb->prefix}postmeta.post_id ) WHERE 1=1 AND ( {$wpdb->prefix}postmeta.meta_key = '_sc_user_account' AND {$wpdb->prefix}postmeta.meta_value = '{$customer_id}') AND {$wpdb->prefix}posts.post_type = 'sc_order' AND (({$wpdb->prefix}posts.post_status <> 'trash' AND {$wpdb->prefix}posts.post_status <> 'auto-draft')) ORDER BY `{$wpdb->prefix}posts`.`post_date` DESC" );
+    } else {
+        $result = $wpdb->get_results( "SELECT {$wpdb->prefix}posts.ID,{$wpdb->prefix}postmeta.meta_value FROM {$wpdb->prefix}posts INNER JOIN {$wpdb->prefix}postmeta ON ( {$wpdb->prefix}posts.ID = {$wpdb->prefix}postmeta.post_id ) WHERE 1=1 AND ( {$wpdb->prefix}postmeta.meta_key = '_sc_user_account' ) AND {$wpdb->prefix}posts.post_type = 'sc_order' AND (({$wpdb->prefix}posts.post_status <> 'trash' AND {$wpdb->prefix}posts.post_status <> 'auto-draft')) ORDER BY `{$wpdb->prefix}posts`.`post_date` DESC" );
+    }
+    
+    $customers = array();
+    foreach ( $result as $key => $post ) {
+        $userdata = get_userdata( $post->meta_value );
+        $user_email = $userdata->user_email;
+        $status = ( in_array( get_post_status( $post->ID ), [ 'pending-payment', 'initiated' ] ) ? 'pending' : get_post_status( $post->ID ) );
+        $refundedarray = array();
+        
+        if ( get_post_meta( $post->ID, '_sc_payment_status', true ) == 'refunded' ) {
+            $refund_logs_entrie = get_post_meta( $post->ID, '_sc_refund_log', true );
+            $total_amount = get_post_meta( $post->ID, '_sc_amount', true );
+            
+            if ( is_array( $refund_logs_entrie ) ) {
+                $refund_amount = array_sum( array_column( $refund_logs_entrie, 'amount' ) );
+                $total_amount = get_post_meta( $post->ID, '_sc_amount', true ) - $refund_amount;
+                $total_amount = $total_amount;
+                $refundedarray[] = $refund_amount;
+            }
+        
+        } else {
+            if ( $status == 'paid' ) {
+                $total_amount = get_post_meta( $post->ID, '_sc_amount', true );
+            }
+        }
+        
+        
+        if ( $status == 'paid' ) {
+            $customers[$user_email][] = array(
+                'id'           => $post->ID,
+                'total_amount' => $total_amount,
+            );
+        } else {
+            $customers[$user_email][] = array(
+                'id'           => $post->ID,
+                'total_amount' => 0,
+            );
+        }
+    
+    }
+    return $customers;
+}
+
+function sc_check_currency_setting()
+{
+    $thousand_sep = get_option( '_sc_thousand_separator' );
+    $formatted = get_option( 'sc_price_formatted' );
+    
+    if ( $thousand_sep && $thousand_sep != ',' && $formatted != 'yes' ) {
+        $scheduled_time = wp_next_scheduled( 'nsc_run_price_formatting', array() );
+        
+        if ( !$scheduled_time ) {
+            add_action( 'admin_notices', 'sc_db_update_notice' );
+            wp_schedule_single_event(
+                time(),
+                'nsc_run_price_formatting',
+                array(),
+                true
+            );
+        } else {
+            if ( time() > $scheduled_time + 60 * 60 ) {
+                add_action( 'admin_notices', 'sc_db_update_manually_notice' );
+            }
+        }
+    
+    }
+    
+    if ( $formatted == 'yes' ) {
+        add_action( 'admin_notices', 'sc_db_update_complete_notice' );
+    }
+}
+
+add_action( 'nsc_run_price_formatting', 'sc_run_price_formatting' );
+function sc_db_update_manually_notice()
+{
+    $url = $_SERVER['REQUEST_URI'] . "?price_format=yes";
+    if ( !empty($_SERVER['QUERY_STRING']) ) {
+        $url = $_SERVER['REQUEST_URI'] . "&price_format=yes";
+    }
+    ?>
+    <div class="notice notice-warning">
+        <p><?php 
+    _e( '<b>Studiocart Data Updater</b> - The database update is taking longer than expected. Click <a href="' . $url . '">here</a> to run it manually.', 'ncs-cart' );
+    ?></p>
+    </div>
+    <?php 
+}
+
+function sc_db_update_complete_notice()
+{
+    if ( get_option( 'dismissed-sc_price_formatted', false ) ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-success notice-sc-db-update is-dismissible" data-notice="sc_price_formatted">
+        <p><?php 
+    _e( '<b>Studiocart Data Updater</b> - The database update process is complete.', 'ncs-cart' );
+    ?></p>
+    </div>
+    <?php 
+}
+
+function sc_db_update_notice()
+{
+    ?>
+    <div class="notice notice-success is-dismissible">
+        <p><?php 
+    _e( '<b>Studiocart Data Updater</b> - Version 2.6 database update is in progress.', 'ncs-cart' );
+    ?></p>
+    </div>
+    <?php 
+}
+
+function sc_run_price_formatting()
+{
+    require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-price-format.php';
+    $priceFormat = new NCS_Price_Format();
+}
+
+
+if ( is_admin() ) {
+    
+    if ( isset( $_GET['price_format'] ) && $_GET['price_format'] == 'yes' && get_option( 'sc_price_formatted' ) != 'yes' ) {
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-price-format.php';
+        $priceFormat = new NCS_Price_Format();
+        // delete scheduled db update since we just ran it manually
+        wp_clear_scheduled_hook( 'nsc_run_price_formatting', array() );
+    }
+    
+    sc_check_currency_setting();
+    if ( isset( $_GET['format_err'] ) ) {
+        add_action( 'admin_notices', 'ncs_price_format_error' );
+    }
+}
+
+function ncs_price_format_error()
+{
+    ?>
+    <div class="notice notice-error is-dismissible">
+        <p><?php 
+    _e( 'Error: Invalid price format - ' . $_GET['format_err'] . '. Price format should match price format setting.', 'ncs-cart' );
+    ?></p>
+    </div>
+    <?php 
+}
+
+add_action( 'wp_ajax_sc_dismissed_notice_handler', 'sc_ajax_notice_handler' );
+function sc_ajax_notice_handler()
+{
+    $type = sanitize_text_field( $_REQUEST['type'] );
+    update_option( 'dismissed-' . $type, true );
+}
+
+add_action( 'admin_print_scripts', 'sc_alert_print_scripts', 9999 );
+function sc_alert_print_scripts()
+{
+    ?>
+    <script>
+        jQuery(function($) {	
+            $( document ).on( 'click', '.notice-sc-db-update .notice-dismiss', function () {
+                var type = $( this ).closest( '.notice-sc-db-update' ).data( 'notice' );
+                $.ajax( ajaxurl,
+                {
+                    type: 'POST',
+                    data: {
+                    action: 'sc_dismissed_notice_handler',
+                    type: type,
+                    }
+                } );
+            } );
+        });
+    </script>
+    <?php 
 }

@@ -4,18 +4,15 @@ $image_file = get_option('_sc_company_logo');
 $company_name = get_option('_sc_company_name');
 $company_address = get_option('_sc_company_address');
 $footer_text = get_option('_sc_email_footer_text');
+$atts = $args;
 
 if($image_file) {
     $image_file = '<img align="center" border="0" src="'. esc_attr($image_file).'" alt="'.esc_attr($company_name).'" title="'.esc_attr($company_name).'" style="outline: none;text-decoration: none;-ms-interpolation-mode: bicubic;clear: both;display: inline-block !important;border: none;height: auto;float: none;width: 100%;max-width: 221px;" width="221"/>';
 } else {
     $image_file = '';
 }
-
-function sc_do_order_table($type, $order) {
-    include_once dirname(__FILE__).'/order-table.php';
-}
    
-if($atts['type'] == 'confirmation') {
+if($atts['type'] == 'confirmation' || $atts['type'] == 'renewal' || $atts['type'] == 'pending') {
     add_action('sc_before_email_footer', 'sc_do_order_table', 10, 2);
 }
         
@@ -39,6 +36,7 @@ if($atts['type'] == 'confirmation') {
   <title></title>
   
     <style type="text/css">
+        
       table, td { color: #000000; } @media only screen and (min-width: 620px) {
   .u-row {
     width: 600px !important;
@@ -97,6 +95,10 @@ td {
 p {
   margin: 0;
 }
+        
+#email-body p {
+  margin: 0 0 20px;
+}
 
 .ie-container table,
 .mso-container table {
@@ -110,7 +112,12 @@ p {
 a[x-apple-data-detectors='true'] {
   color: inherit !important;
   text-decoration: none !important;
-}
+}        
+        
+<?php if(isset($_GET['sc-preview'])): ?>
+    body {background: #f7f7f7 !important;}
+    body > table {max-width: 650px !important;}
+<?php endif; ?>
 
 </style>
   
@@ -181,6 +188,7 @@ a[x-apple-data-detectors='true'] {
   <div style="width: 100% !important;">
   <!--[if (!mso)&(!IE)]><!--><div style="padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;"><!--<![endif]-->
   
+      <?php if($atts['headline'] || $atts['body']): ?>
 <table style="font-family:'Lato',sans-serif;" role="presentation" cellpadding="0" cellspacing="0" width="100%" border="0">
   <tbody>
     <tr>
@@ -190,27 +198,16 @@ a[x-apple-data-detectors='true'] {
               <h4 style="font-size: 20px; line-height: 24px; text-align: center; margin:0 0 10px; font-weight:normal"><?php echo esc_attr($atts['headline']); ?></h4>
             <?php endif; ?>
             <?php if($atts['body']): ?>
-              <p style="font-size: 14px; line-height: 120%; text-align: center;"><?php echo esc_attr($atts['body']); ?></p>
+              <div id="email-body" style="font-size: 14px; line-height: 120%;"><?php echo esc_attr(wpautop($atts['body'])); ?></div>
             <?php endif; ?>
           </div>
       </td>
     </tr>
   </tbody>
 </table>
+      <?php endif; ?>
 
-<table style="font-family:'Lato',sans-serif;" role="presentation" cellpadding="0" cellspacing="0" width="100%" border="0">
-  <tbody>
-    <tr>
-      <td style="overflow-wrap:break-word;word-break:break-word;padding:10px 20px 30px;font-family:'Lato',sans-serif;" align="left">
-        
-  <div style="color: #303030; line-height: 120%; text-align: center; word-wrap: break-word;">
-    <p style="line-height: 120%; font-size: 14px;"><span style="font-size: 14px; line-height: 16.8px;"><?php do_action('sc_before_email_footer', $atts['type'], $atts['order_info']); ?></span></p>
-  </div>
-
-      </td>
-    </tr>
-  </tbody>
-</table>
+<?php do_action('sc_before_email_footer', $atts['type'], $atts['order_info']); ?>  
 
   <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->
   </div>
@@ -221,8 +218,6 @@ a[x-apple-data-detectors='true'] {
   </div>
 </div>
         
- <?php do_action('sc_before_email_footer', $atts['type'], $atts['order_info']); ?>
-
 <div class="u-row-container" style="padding: 0px 0px 20px;background-color: #ffffff">
   <div class="u-row" style="Margin: 0 auto;min-width: 320px;max-width: 600px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;">
     <div style="border-collapse: collapse;display: table;width: 100%;background-color: transparent;">
@@ -239,8 +234,6 @@ a[x-apple-data-detectors='true'] {
       <td style="overflow-wrap:break-word;word-break:break-word;padding:20px;font-family:'Lato',sans-serif;" align="left">
         
   <div style="color: #7d7d7d; line-height: 140%; text-align: center; word-wrap: break-word;">
-    <p style="font-size: 14px; line-height: 140%;">&nbsp;</p>
-<p style="font-size: 14px; line-height: 140%;">&nbsp;</p>
 <p style="font-size: 14px; line-height: 140%;"><span style="font-size: 12px; line-height: 16.8px;"><?php echo esc_attr(sc_personalize($footer_text,$atts['order_info'])); ?></span></p>
   </div>
 

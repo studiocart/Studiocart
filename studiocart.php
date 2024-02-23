@@ -13,10 +13,10 @@
  * @package           NCS_Cart
  *
  * @wordpress-plugin
- * Plugin Name: Studiocart (Premium)
+ * Plugin Name: Studiocart
  * Plugin URI:        https://studiocart.co
  * Description:       Stunning order pages and simplified sales flow creation that helps you sell digital products, programs, and services from your WordPress site.
- * Version:           2.3.1
+ * Version:           2.6.4
  * Author:            N.Creatives
  * Author URI:        https://ncreatives.com
  * License:           GPL-2.0+
@@ -60,8 +60,8 @@ if ( function_exists( 'sc_fs' ) ) {
                     'has_addons'      => false,
                     'has_paid_plans'  => true,
                     'trial'           => array(
-                    'days'               => 30,
-                    'is_require_payment' => true,
+                    'days'               => 14,
+                    'is_require_payment' => false,
                 ),
                     'has_affiliation' => 'selected',
                     'menu'            => array(
@@ -86,8 +86,10 @@ if ( function_exists( 'sc_fs' ) ) {
      * Start at version 1.0.0 and use SemVer - https://semver.org
      * Rename this for your plugin and update it as you release new versions.
      */
-    define( 'NCS_CART_VERSION', '2.3.1' );
+    define( 'NCS_CART_VERSION', '2.6.4' );
     define( 'NCS_CART_BASE_DIR', plugin_dir_path( __FILE__ ) );
+    define( 'NCS_CART_BASE_URL', plugin_dir_url( __FILE__ ) );
+    define( 'NCS_STYLESHEETPATH', get_stylesheet_directory() );
     /**
      * The code that runs during plugin activation.
      * This action is documented in includes/class-ncs-cart-activator.php
@@ -114,17 +116,13 @@ if ( function_exists( 'sc_fs' ) ) {
      */
     function upgrade_ncs_cart( $upgrader_object, $options )
     {
-        $current_plugin_path_name = plugin_basename( __FILE__ );
-        if ( $options['action'] == 'update' && $options['type'] == 'plugin' ) {
-            foreach ( $options['plugins'] as $each_plugin ) {
-                
-                if ( $each_plugin == $current_plugin_path_name ) {
-                    require_once plugin_dir_path( __FILE__ ) . 'includes/class-ncs-cart-upgrade.php';
-                    NCS_Cart_Upgrade::upgrade();
-                }
-            
-            }
+        $current_plugin_dir_name = plugin_basename( __DIR__ );
+        
+        if ( isset( $upgrader_object->result ) && isset( $upgrader_object->result['destination_name'] ) && $upgrader_object->result['destination_name'] == $current_plugin_dir_name ) {
+            require_once plugin_dir_path( __FILE__ ) . 'includes/class-ncs-cart-upgrade.php';
+            NCS_Cart_Upgrade::upgrade();
         }
+    
     }
     
     register_activation_hook( __FILE__, 'activate_ncs_cart' );
@@ -140,12 +138,14 @@ if ( function_exists( 'sc_fs' ) ) {
      * admin-specific hooks, and public-facing site hooks.
      */
     require plugin_dir_path( __FILE__ ) . 'includes/class-ncs-cart.php';
+    require plugin_dir_path( __FILE__ ) . 'includes/class-schedule-event.php';
     require_once plugin_dir_path( __FILE__ ) . 'models/ScrtOrder.php';
     require_once plugin_dir_path( __FILE__ ) . 'models/ScrtSubscription.php';
     /**
      * Include helper functions
      */
     require_once plugin_dir_path( __FILE__ ) . 'includes/functions.php';
+    require_once plugin_dir_path( __FILE__ ) . 'includes/helpers/ncs-scheduling.php';
     add_action( 'after_setup_theme', 'crb_load' );
     function crb_load()
     {
@@ -165,6 +165,14 @@ if ( function_exists( 'sc_fs' ) ) {
     {
         $plugin = new NCS_Cart();
         $plugin->run();
+    }
+    
+    /**
+     * Return Helper class Instance 
+     */
+    function ncs_helper()
+    {
+        return NCS_Helper::instance();
     }
     
     run_ncs_cart();

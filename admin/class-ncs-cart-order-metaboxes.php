@@ -63,6 +63,7 @@ class NCS_Cart_Order_Metaboxes {
 	 */
     
     private $general;
+    private $sub_fields;
     
 	public function __construct( $plugin_name, $version, $prefix ) {
 
@@ -93,6 +94,15 @@ class NCS_Cart_Order_Metaboxes {
 			apply_filters( $this->plugin_name . '-metabox-title-order-details', esc_html__( 'Order Details', 'ncs-cart' ) ),
 			array( $this, 'order_detail_fields' ),
 			'sc_order',
+			'normal',
+			'high'
+		);
+        
+        add_meta_box(
+			'sc-edit-order-details',
+			apply_filters( $this->plugin_name . '-metabox-title-order-details', esc_html__( 'Subscriber Details', 'ncs-cart' ) ),
+			array( $this, 'sub_detail_fields' ),
+			'sc_subscription',
 			'normal',
 			'high'
 		);
@@ -132,12 +142,12 @@ class NCS_Cart_Order_Metaboxes {
 	 * @access 		public
 	 * @return 		array 		Metabox fields and types
 	 */
-	private function get_metabox_fields() {
+	private function get_metabox_fields($post_type) {
         
         $this->set_field_groups(true);
         
         $fields = array();        
-        $groups = array( 'general');
+        $groups = ($post_type == 'sc_order') ? array('general') : array('sub_fields');
         
         foreach($groups as $id) {
             foreach($this->$id as $group) {
@@ -172,7 +182,6 @@ class NCS_Cart_Order_Metaboxes {
 
 	} // metabox() */
     
-    
     public function order_detail_fields( $post, $params ) {
         
 		if ( ! is_admin() ) { return; }
@@ -185,6 +194,24 @@ class NCS_Cart_Order_Metaboxes {
         
             echo '<div>';
                 $this->metabox_fields($this->general);
+            echo '</div>';
+        
+        echo '</div>';
+
+	}
+    
+    public function sub_detail_fields( $post, $params ) {
+        
+		if ( ! is_admin() ) { return; }
+        
+		if ( 'sc_subscription' !== $post->post_type ) { return; }
+        
+        echo '<div class="sc-settings-tabs">';
+            
+        wp_nonce_field( $this->plugin_name, 'sc_fields_nonce' );
+        
+            echo '<div>';
+                $this->metabox_fields($this->sub_fields);
             echo '</div>';
         
         echo '</div>';
@@ -308,7 +335,7 @@ class NCS_Cart_Order_Metaboxes {
             $post_id = absint($_GET['post']); // Always sanitize
             $post = get_post( $post_id ); // Post Object, like in the Theme loop
 
-		    if ( 'sc_order' != $post->post_type ) { return; }
+		    if ( 'sc_order' != $post->post_type && 'sc_subscription' != $post->post_type ) { return; }
 
             //wp_die( '<pre>' . var_dump( $post->ID ) . '</pre>' );
             $this->meta = get_post_custom( $post->ID );
@@ -336,17 +363,15 @@ class NCS_Cart_Order_Metaboxes {
 	 */
 	public function validate_meta( $post_id, $object ) {
 
-		//wp_die( '<pre>' . print_r( $_POST ) . '</pre>' );
-
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) { return $post_id; }
 		if ( ! current_user_can( 'edit_post', $post_id ) ) { return $post_id; }
-		if ( 'sc_order' !== $object->post_type ) { return $post_id; }
+		if ( 'sc_subscription' !== $object->post_type ) { return $post_id; }
 
 		$nonce_check = $this->check_nonces( $_POST );
 
 		if ( 0 < $nonce_check ) { return $post_id; }
 
-		$metas = $this->get_metabox_fields();
+		$metas = $this->get_metabox_fields($object->post_type);
         
         $stripe_objects = array();
         
@@ -399,7 +424,6 @@ class NCS_Cart_Order_Metaboxes {
             }
         }
         
-        
         $this->general = array(
             array(
                 'class'		=> 'widefat',
@@ -437,17 +461,23 @@ class NCS_Cart_Order_Metaboxes {
                 'type'		=> 'text',
                 'value'		=> '',
             ),
-           
-         
-             array(
-                'class'         => '',
-                'description'   => '',
-                'id'            => '_sc_country',
-                'label'         => __('Country','ncs-cart'),
-                'placeholder'   => '',
-                'type'          => 'text',
-                'value'         => '',
-                'class_size'=> ''
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_company',
+                'label'		=> __('Company','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_vat_number',
+                'label'		=> __('VAT Number','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
             ),
             array(
                 'class'     => 'widefat',
@@ -495,7 +525,18 @@ class NCS_Cart_Order_Metaboxes {
                 'value'     => '',
             ),
             array(
-                'class'		    => 'sc-user-search-custom select2',
+                'class'         => 'sc-selectize',
+                'description'   => '',
+                'id'            => '_sc_country',
+                'label'         => __('Country','ncs-cart'),
+                'placeholder'   => '',
+                'type'          => 'select',
+                'value'         => '',
+                'selections' 	=> ($save) ? '' : array_merge([''=>'--Select--'], sc_countries_list()),
+                'class_size'=> ''
+            ),
+            array(
+                'class'		    => 'sc-user-search-custom sc-selectize',
                 'description'	=> '',
                 'id'			=> '_sc_user_account',
                 'label'	    	=> __('Customer','ncs-cart'),
@@ -518,8 +559,7 @@ class NCS_Cart_Order_Metaboxes {
                                     'pending' 	        => __('Pending', 'ncs-cart'),
                                     'paid' 		        => __('Paid', 'ncs-cart'),
                                     'completed'         => __('Completed', 'ncs-cart'),
-                                    'unpaid'	        => __('Unpaid', 'ncs-cart') , 
-                                    'past_due' 	        => __('Past Due', 'ncs-cart'),
+                                    'failed'	        => __('Failed', 'ncs-cart') , 
                                     'refunded' 	        => __('Refunded', 'ncs-cart'),
                                     'uncollectible'     => __('Uncollectible', 'ncs-cart'),
                                 ),
@@ -545,6 +585,130 @@ class NCS_Cart_Order_Metaboxes {
                 'type'		    => 'select',
                 'value'		    => '',
                 'selections'    => ($save) ? '' : $this->get_sc_products_payment(),
+                'class_size'=> ''
+            ),
+          );
+        
+        $this->sub_fields = array(
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_firstname',
+                'label'		=> __('First Name ','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+             array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_lastname',
+                'label'		=> __('Last Name','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_email',
+                'label'		=> __('Email','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_phone',
+                'label'		=> __('Phone','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_company',
+                'label'		=> __('Company','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'		=> 'widefat',
+                'description'	=> '',
+                'id'			=> '_sc_vat_number',
+                'label'		=> __('VAT Number','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		=> 'text',
+                'value'		=> '',
+            ),
+            array(
+                'class'     => 'widefat',
+                'description'   => '',
+                'id'            => '_sc_address1',
+                'label'     => __('Address ','ncs-cart'),
+                'placeholder'   => '',
+                'type'      => 'text',
+                'value'     => '',
+            ),
+            array(
+                'class'     => 'widefat',
+                'description'   => '',
+                'id'            => '_sc_address2',
+                'label'     => __('Address2 ','ncs-cart'),
+                'placeholder'   => '',
+                'type'      => 'text',
+                'value'     => '',
+            ),
+            array(
+                'class'     => 'widefat',
+                'description'   => '',
+                'id'            => '_sc_city',
+                'label'     => __('City ','ncs-cart'),
+                'placeholder'   => '',
+                'type'      => 'text',
+                'value'     => '',
+            ),
+            array(
+                'class'     => 'widefat',
+                'description'   => '',
+                'id'            => '_sc_state',
+                'label'     => __('State ','ncs-cart'),
+                'placeholder'   => '',
+                'type'      => 'text',
+                'value'     => '',
+            ),
+            array(
+                'class'     => 'widefat',
+                'description'   => '',
+                'id'            => '_sc_zip',
+                'label'     => __('Zip ','ncs-cart'),
+                'placeholder'   => '',
+                'type'      => 'text',
+                'value'     => '',
+            ),
+            array(
+                'class'         => 'sc-selectize',
+                'description'   => '',
+                'id'            => '_sc_country',
+                'label'         => __('Country','ncs-cart'),
+                'placeholder'   => '',
+                'type'          => 'select',
+                'value'         => '',
+                'selections' 	=> ($save) ? '' : sc_countries_list(),
+                'class_size'=> ''
+            ),
+            array(
+                'class'		    => 'sc-user-search-custom sc-selectize',
+                'description'	=> '',
+                'id'			=> '_sc_user_account',
+                'label'	    	=> __('Customer','ncs-cart'),
+                'placeholder'	=> '',
+                'type'		    => 'select',
+                'value'		    => '',
+                'selections'    => ($save) ? '' : $usersArr,
                 'class_size'=> ''
             ),
           );
@@ -590,12 +754,13 @@ class NCS_Cart_Order_Metaboxes {
                     
  			        foreach ( $_sc_pay_options as $pay_options ) {
                         foreach ( $pay_options as $value ) {
-                            if($value['option_id']){
-                                $options[$value['option_name']] = $value['option_name'];
-                                
-                                if(isset($value['sale_option_name'])){
-                                    $options[$value['sale_option_name']] = $value['sale_option_name'] .'  (on sale)';
-                                } 
+                            if(isset($value['option_id'])){
+                                $value['option_name'] = $value['option_name'] ?? $value['option_id'];
+                                $options[$value['option_id']] = $value['option_name'];
+                                if(isset($value['sale_price'])){
+                                    $value['sale_option_name'] = $value['sale_option_name'] ?? $value['option_name'] . ' (on sale)';
+                                    $options[$value['option_id'].'_sale'] = $value['sale_option_name'];
+                                }
                             }
                         }
 					}

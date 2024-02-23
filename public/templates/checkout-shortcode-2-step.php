@@ -2,7 +2,7 @@
 
 require_once plugin_dir_path( __FILE__ ) . 'template-functions.php';
 
-global $sc_currency_symbol;
+global $scp,$sc_currency_symbol;
 
 if(isset($product_id)){
     $scp = sc_setup_product( $product_id );
@@ -13,7 +13,7 @@ add_action('sc_closed_message', 'sc_do_cart_closed_message');
 add_action('sc_checkout_form_scripts', 'sc_do_checkout_form_scripts',10,2);
 add_action('sc_checkout_page_heading', 'sc_do_error_messages', 15);
 add_action('sc_checkout_form_open', 'sc_do_2step_checkout_form_open', 10);
-add_action('sc_checkout_form', 'sc_do_checkout_form', 10, 2);
+add_action('sc_checkout_form', 'sc_do_checkout_form', 10, 3);
 add_action('sc_card_details_fields', 'sc_step_wrappers_1', 1); 
 add_action('sc_card_details_fields', 'sc_do_2step_checkoutform_fields', 1, 2); 
 
@@ -22,7 +22,7 @@ add_action('sc_card_details_fields', 'sc_address_fields', 1, 2);
 }
 
 add_action('sc_card_details_fields', 'sc_step_wrappers_2', 1); 
-add_action('sc_card_details_fields', 'sc_payment_plan_options', 5); 
+add_action('sc_card_details_fields', 'sc_payment_plan_options', 5, 3); 
 add_action('sc_card_details_fields', 'sc_do_card_details_fields', 10, 2);
 add_action('sc_before_payment_info', 'sc_do_test_mode_message', 10);
 add_action('sc_order_summary', 'sc_do_order_summary', 10);
@@ -82,7 +82,7 @@ if (!$builder) : ?>
 	} else {
         do_action('sc_checkout_page_heading', $product_id);
 		do_action('sc_checkout_form_open', $product_id);
-        do_action('sc_checkout_form', $product_id, $hide_labels);
+        do_action('sc_checkout_form', $product_id, $hide_labels, $plan);
         do_action('sc_checkout_form_close');	
 	} ?>
 	  

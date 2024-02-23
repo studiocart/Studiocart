@@ -43,6 +43,7 @@ class ScrtSubscription {
         'custom_fields_post_data' => null,
         'custom_fields'     => null,
         'custom'            => null,
+        'company'           => null,
         'email'             => null,
         'phone'             => null,
         'country'           => null,
@@ -77,6 +78,7 @@ class ScrtSubscription {
         'us_parent'         => null,
         'ds_parent'         => null,
         'vat_number'        => '',
+        'quantity'          => 1,
       ),
       $obj
     );
@@ -125,10 +127,13 @@ class ScrtSubscription {
 
   // Statuses
   public static $pending_str    = 'pending-payment';
+  public static $incomplete_str = 'incomplete';
+  public static $trial_str      = 'trialing';
   public static $active_str     = 'active';
+  public static $past_due_str   = 'past_due';
+  public static $paused_str     = 'paused';
   public static $canceled_str   = 'canceled';
   public static $completed_str  = 'completed';
-  public static $past_due_str   = 'past_due';
 
   // Static Gateways
   public static $free_gateway_str  = 'free';
@@ -218,13 +223,14 @@ class ScrtSubscription {
         $sub->plan_id              = $plan->stripe_id;
         $sub->option_id            = $plan->option_id;
         $sub->item_name            = $plan->name;
-        $sub->amount               = $plan->price;
-        $sub->sub_amount           = $plan->price;
+        $sub->amount               = $plan->price * $order->quantity;
+        $sub->sub_amount           = $plan->price * $order->quantity;
         $sub->sub_item_name        = $plan->name;
         $sub->sub_installments     = $plan->installments;
         $sub->sub_interval         = $plan->interval;
         $sub->sub_frequency        = $plan->frequency;
         $sub->sub_next_bill_date   = $plan->next_bill_date;
+        $sub->quantity             = $order->quantity;
                 
         if($plan->db_cancel_at){
             $sub->sub_end_date     = $plan->db_cancel_at;
@@ -235,8 +241,8 @@ class ScrtSubscription {
             $discount = $order->coupon['amount'];
             if ($order->coupon['type'] == 'percent') {
                 $discount = $sub->sub_amount * ($discount / 100);
-            } else if ( $_option_type == 'recurring' && !empty($coupon['amount_recurring']) ) {
-                $discount = $coupon['amount_recurring'];
+            } else if ( !empty($order->coupon['amount_recurring']) ) {
+                $discount = $order->coupon['amount_recurring'];
             }
             
             $sub->sub_discount = $discount;
@@ -249,14 +255,14 @@ class ScrtSubscription {
             }
             
         }
-    }
 
-    if(!empty($plan->trial_days)){
-        $sub->free_trial_days = $plan->trial_days;
-    }
-      
-    if(!empty($plan->fee)){
-        $sub->sign_up_fee = $plan->fee;
+        if(!empty($plan->trial_days)){
+            $sub->free_trial_days = $plan->trial_days;
+        }
+          
+        if(!empty($plan->fee)){
+            $sub->sign_up_fee = $plan->fee * $sub->quantity;
+        }
     }
       
     // process order bumps
@@ -264,7 +270,7 @@ class ScrtSubscription {
       foreach($order->order_bumps as $k=>$bump) {
           
         // does this order bump have a subscription?
-        if(isset($bump['plan'])) {
+        if(isset($bump['plan']) && $bump['plan']->type == 'recurring') {
         
           // add bump plan info if main product purchase isn't a subscription
           if($plan->type != 'recurring') {
@@ -305,14 +311,27 @@ class ScrtSubscription {
       }
     }
     if($sub->tax_data){
-      if($sub->tax_data->type=='inclusive'){	
+      if(isset($sub->tax_data->redeem_vat) && $sub->tax_data->redeem_vat){
+        if($sub->tax_data->type=='inclusive'){	
+            $sub->tax_amount = $sub->tax_rate*$sub->amount/(100+$sub->tax_rate);	
+            $sub->sub_amount -= $sub->tax_amount;
+        } else {	
+            $sub->sign_up_fee = $sub->sign_up_fee + ($sub->sign_up_fee*$sub->tax_rate/100);
+            $sub->tax_amount = $sub->tax_rate*$sub->amount/100;	   
+        }
+      } else {
+        if($sub->tax_data->type=='inclusive'){	
           $sub->tax_amount = $sub->tax_rate*$sub->amount/(100+$sub->tax_rate);	
-      } else {	
-          $sub->sign_up_fee = sc_format_number($sub->sign_up_fee + ($sub->sign_up_fee*$sub->tax_rate/100));
-          $sub->tax_amount = $sub->tax_rate*$sub->amount/100;	
-          $sub->sub_amount += $sub->tax_amount;	
-      }	        
-  }
+        } else {	
+            $sub->sign_up_fee = $sub->sign_up_fee + ($sub->sign_up_fee*$sub->tax_rate/100);
+            $sub->tax_amount = $sub->tax_rate*$sub->amount/100;	
+            $sub->sub_amount += $sub->tax_amount;	
+        }
+      }     
+    }
+    
+    do_action('sc_after_subscription_load_from_order', $sub, $order);
+
     return $sub;
   }    
       
@@ -366,7 +385,12 @@ class ScrtSubscription {
         $data[$key] = $this->$key;
       }
       
-      $data['status'] = (in_array(get_post_status( $this->status ),['pending-payment','initiated'])) ? 'pending' : $this->status;
+      if($data['user_account']) {
+          $data['user'] = get_user_by( 'id', $data['user_account'] );
+      }
+      
+      $data['status'] = (in_array( $this->status ,['pending-payment','initiated'])) ? 'pending' : $this->status;
+      $data['status_label'] = $this->get_status();
       
       if($data['free_trial_days']){
         $start_date =  date("M j, Y", strtotime(get_the_time( 'Y-m-d', $this->id ) ."+".$data['free_trial_days']." day"));
@@ -374,6 +398,27 @@ class ScrtSubscription {
         $start_date =  get_the_time( 'M j, Y', $this->id );   
       }
       $data['start_date'] = $start_date;
+      
+      $data['next_pay_date'] = '';
+      if($data['status'] == 'completed' || $data['status'] == 'paused'){
+            $data['next_pay_date'] = "n/a";
+      }else if($nextdate = $data['sub_next_bill_date']){
+        if (is_numeric($nextdate)) {
+            $data['next_pay_date'] = get_date_from_gmt(date( 'Y-m-d H:i:s', $nextdate ), 'M j, Y');
+        } else {
+            $dateTime = DateTime::createFromFormat('Y-m-d', $nextdate);
+            if ($dateTime !== FALSE) {
+                $data['next_pay_date'] = $dateTime->format('M j, Y');
+            }
+        }
+      }
+      
+      $data['sub_end_date'] = $data['sub_end_date'] ?? '';
+      if($data['sub_end_date']) {
+          $data['end_date'] = date("M j, Y", strtotime($data['sub_end_date']));
+      } else {
+          $data['end_date'] = false;
+      }
       
       $data['sub_payment'] = '<span class="sc-Price-amount amount">'.sc_format_price($data['sub_amount']).'</span> / ';
 
@@ -383,8 +428,8 @@ class ScrtSubscription {
         $data['sub_payment'] .= ($data['sub_frequency'] . ' ' . sc_pluralize_interval($data['sub_interval']));
         $data['sub_payment_plain'] .= ($data['sub_frequency'] . ' ' . sc_pluralize_interval($data['sub_interval']));
       } else {
-        $data['sub_payment'] .= $data['sub_interval'];
-        $data['sub_payment_plain'] .= $data['sub_interval'];
+        $data['sub_payment'] .= __($data['sub_interval'], 'ncs-cart');
+        $data['sub_payment_plain'] .= __($data['sub_interval'], 'ncs-cart');
       }
 
       $data['sub_payment_terms'] = $data['sub_payment'];
@@ -430,47 +475,71 @@ class ScrtSubscription {
     return $first_order;
   }
     
+  public function last_order() {
+    if(!$this->id) {
+        return false;
+    }
+    return $this->orders(1, $status='any', $order='DESC');
+  }
+    
   public function new_order() {
     $new_order = $this->first_order();
     if($new_order) {
+        $new_order->id = 0;
         $new_order->pay_method = $this->pay_method;
         $new_order->gateway_mode = $this->gateway_mode;
-        $new_order->invoice_total = $this->amount;
-        $new_order->invoice_subtotal = $this->amount - $this->tax_amount;
-        $new_order->amount = $this->amount;
-        $new_order->main_offer_amt = $this->amount;
+        $new_order->invoice_total = $this->sub_amount;
+        $new_order->invoice_subtotal = $this->sub_amount - $this->tax_amount;
+        $new_order->amount = $this->sub_amount;
+        $new_order->main_offer_amt = $this->sub_amount;
         $new_order->tax_amount = $this->tax_amount;
-            
+        $new_order->quantity = $this->quantity;
+
         $children = array(
-        'id'                => 0,
-        'transaction_id'    => null,
-        'status'            => self::$pending_str,
-        'payment_status'    => self::$pending_str,
-        'coupon'            => null,
-        'coupon_id'         => null,
-        'on_sale'           => 0,
-        'accept_terms'      => null,
-        'accept_privacy'    => null,
-        'consent'           => null,
-        'order_log'         => null,
-        'order_bumps'       => null,
-        'us_parent'         => null,
-        'ds_parent'         => null,
-        'order_parent'      => null,
-        'order_type'        => null,
+          'transaction_id'    => null,
+          'status'            => self::$pending_str,
+          'payment_status'    => self::$pending_str,
+          'coupon'            => null,
+          'coupon_id'         => null,
+          'on_sale'           => 0,
+          'accept_terms'      => null,
+          'accept_privacy'    => null,
+          'consent'           => null,
+          'order_log'         => null,
+          'refund_log'        => null,
+          'order_bumps'       => null,
+          'us_parent'         => null,
+          'ds_parent'         => null,
+          'order_parent'      => null,
+          'order_type'        => null,
         );
         foreach($children as $k=>$v){
             $new_order->$k = $v;
         }
+
+        $new_order->items = array(
+          array(
+            'product_id'     => $this->product_id,
+            'price_id'       => $this->option_id,
+            'product_name'   => $this->product_name,
+            'price_name'     => $this->sub_item_name,
+            'unit_price'     => $this->sub_amount,
+            'item_type'      => 'main',
+            'quantity'       => $this->quantity,
+            'subtotal'       => $new_order->invoice_subtotal,
+            'total_amount'   => $new_order->amount,
+            'tax_amount'     => $this->tax_amount,
+          ),
+        );
     }
     return $new_order;
   }
     
-  public function orders($limit=-1, $order='ASC') {
+  public function orders($limit=-1, $status='any', $order='ASC') {
     $orders = array();
     $args = array(
         'post_type'  => 'sc_order',
-        'post_status' => 'any',
+        'post_status' => $status,
         'posts_per_page' => -1,
         'order' => $order,
         'meta_query' => array(
@@ -490,11 +559,22 @@ class ScrtSubscription {
     return $orders;
   }
     
-  public function order_count() {
+  public function order_count($status=false) {
       if(!$this->count_orders) {
           $this->count_orders = count($this->orders());
+      } 
+      
+      if($status) {
+          return count($this->orders($limit=-1, $status='paid'));
+      } else {
+          return (int) $this->count_orders;
       }
-      return (int) $this->count_orders;
+      
+  }
+
+  public function get_status() {
+    global $wp_post_statuses;
+    return $wp_post_statuses[$this->status]->label;
   }
 
 } //End class

@@ -52,6 +52,7 @@ class NCS_Cart_White_Label {
     private $section;
     private $page;
     private $option_group;
+    private $studiocart;
 
 	/**
 	 * Initialize the class and set its properties.
@@ -60,11 +61,12 @@ class NCS_Cart_White_Label {
 	 * @param      string    $plugin_name       The name of this plugin.
 	 * @param      string    $version    The version of this plugin.
 	 */
-	public function __construct( $plugin_name, $plugin_title, $version ) {
+	public function __construct( $plugin_name, $plugin_title, $version, $studiocart ) {
 
 		$this->plugin_name = $plugin_name;
 		$this->plugin_title = $plugin_title;
 		$this->version = $version;
+        $this->studiocart = $studiocart;
         
         $this->section = $this->plugin_name . '-wl-settings';
         $this->page = 'sc-white-label';
@@ -78,6 +80,7 @@ class NCS_Cart_White_Label {
 	}
     
     private function maybe_do_white_label() {
+
         if (!get_option('_sc_wl_enable')) {
             return;
         }
@@ -101,8 +104,18 @@ class NCS_Cart_White_Label {
                 return $options;
             });
         }
-        
-        if ($icon = get_option('_sc_menu_icon')) {
+                        
+        if ($icon = get_option('_sc_menu_image')) {
+            add_action('admin_head', function() {
+              echo '<style>
+                .toplevel_page_studiocart > .wp-menu-image:before {
+                  background: url('.get_option('_sc_menu_image').') no-repeat center;
+                  background-size: contain;
+                  text-indent: -999px;
+                } 
+              </style>';
+            });
+        } else if ($icon = get_option('_sc_menu_icon')) {
             add_action('admin_head', function() {
               echo '<style>
                 .toplevel_page_studiocart > .wp-menu-image:before {
@@ -135,6 +148,7 @@ class NCS_Cart_White_Label {
                 return $meta;
             }, 10, 4 );
         }
+
         
         if(get_option('_sc_wl_slug')) {
             // change shortcode label in backend
@@ -144,12 +158,10 @@ class NCS_Cart_White_Label {
 
             // make white-labeled order form shortcode functional
             add_shortcode( get_option('_sc_wl_slug').'-form', function($atts){
-                $wlsc = new NCS_Cart_Public();
-                return $wlsc::sc_product_shortcode( $atts );
+                return $this->studiocart->sc_product_shortcode( $atts );
             });
             add_shortcode( get_option('_sc_wl_slug').'-receipt', function($atts){
-                $wlsc = new NCS_Cart_Public();
-                return $wlsc::sc_receipt_shortcode( $atts );
+                return $this->studiocart->sc_receipt_shortcode( $atts );
             });
         }
     }
@@ -226,7 +238,7 @@ class NCS_Cart_White_Label {
 			'studiocart',
 			apply_filters( $this->plugin_name . '-settings-page-title', esc_html__( 'White Label Settings', 'ncs-cart' ) ),
 			'',
-			'manage_options',
+			'sc_manager_option',
 			$this->page,
 			array( $this, 'page_options' )
 		);
@@ -300,6 +312,15 @@ class NCS_Cart_White_Label {
                         'description'   => __('Hide the "White Label > Manage" link on the Settings page. (Bookmark this page before turning this setting on!)', 'ncs-cart'),
                     ),
                 ),
+                'sc_wl_show_resources' => array(
+                    'type'          => 'checkbox',
+                    'label'         => esc_html__( 'Keep Resources link visible', 'ncs-cart' ),
+                    'settings'      => array(
+                        'id'            => '_sc_wl_show_resources',
+                        'value'         => '',
+                        'description'   => __('Allow the Resources link to remain visible in the Studiocart menu with White Label turned on.', 'ncs-cart'),
+                    ),
+                ),
                 'sc_wl_name' => array(
                     'type'          => 'text',
                     'label'         => esc_html__( 'Plugin Name', 'ncs-cart' ),
@@ -325,6 +346,18 @@ class NCS_Cart_White_Label {
                         'id'            => '_sc_menu_icon',
                         'value' 		=> '',
                         'selections' 	=> $this->dashicons_options(),
+                    ),
+                ),
+                'menu_image' => array(
+                    'type'          => 'upload',
+                    'label'         => esc_html__( 'Menu Icon (Image)', 'ncs-cart' ),
+                    'settings'      => array(
+                        'id'            => '_sc_menu_image',
+                        'value'         => '',
+                        'description'   => esc_html__( 'Overrides menu icon', 'ncs-cart' ),
+                        'field-type'	=> 'url',
+                        'label-remove'	=> __('Remove Image','ncs-cart'),
+                        'label-upload'	=> __('Set Image','ncs-cart'),
                     ),
                 ),
                 'sc_wl_author_name' => array(
@@ -541,6 +574,22 @@ class NCS_Cart_White_Label {
 		include( plugin_dir_path( __FILE__ ) . 'partials/' . $this->plugin_name . '-admin-field-select.php' );
 
 	} // field_select()
+    
+    public function field_upload( $args ) {
+        $defaults['class']          = 'regular-text';
+        $defaults['name']           =  $args['id'];
+        $defaults['label']          =  '';
+        $defaults['label-remove']   =  '';
+        $defaults['label-upload']   =  '';
+        $defaults['field-type']   =  'url';
+        apply_filters( $this->plugin_name . '-field-textarea-options-defaults', $defaults );
+        $atts = wp_parse_args( $args, $defaults );
+        //if ( ! empty( $this->options[$atts['id']] ) ) {
+        if ($option_val = get_option( $atts['id'] )) {
+            $atts['value'] = $option_val;
+		}
+		include( plugin_dir_path( __FILE__ ) . 'partials/' . $this->plugin_name . '-admin-field-file-upload.php' );
+	} // field_textarea()
     
     private function sanitizer( $type, $data ) {
 

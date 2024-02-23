@@ -56,7 +56,7 @@
 		$( '.remove-file' ).on( 'click', function( e ) {
 			// Stop the anchor's default behavior
 			e.preventDefault();
-            var parent = $(this).closest('.sc-field, td');
+            var parent = $(this).closest('.wrap-field, .sc-field, td');
             field = parent.find( '[data-id="url-file"]' );
             remove = parent.find( '.remove-file' );
             upload = parent.find( '.upload-file' );
@@ -67,6 +67,67 @@
 			// change the link message
 			upload.toggleClass( 'hide' );
 			remove.toggleClass( 'hide' );
+		});
+
+		// Handle upload
+		$( '.sc-upload-file' ).on( 'click', function( e ) {
+			// Stop the anchor's default behavior
+			e.preventDefault();
+            var parent = $(this).closest('.wrap-field, .sc-field, td');
+            parent.find( '[name="async-upload"]' ).click();
+		});
+
+		$( '.sc-upload-file-field' ).on('change', function(e) {
+			e.preventDefault();
+
+			var formData = new FormData();
+			var $imgFile = $(this);
+			var parent = $(this).closest('.wrap-field, .sc-field, td');
+
+			formData.append('action', 'upload-attachment');
+			formData.append('async-upload', $imgFile[0].files[0]);
+			formData.append('name', $imgFile[0].files[0].name);
+			formData.append('type', 'sc_upload');
+			formData.append('_wpnonce', sc_reg_vars.media_nonce);
+
+			var url = sc_reg_vars.upload_url;
+
+			$.ajax({
+				url: sc_reg_vars.upload_url,
+				data: formData,
+				processData: false,
+				contentType: false,
+				dataType: 'json',
+				/*xhr: function() {
+					var myXhr = $.ajaxSettings.xhr();
+
+					if ( myXhr.upload ) {
+						myXhr.upload.addEventListener( 'progress', function(e) {
+							if ( e.lengthComputable ) {
+								var perc = ( e.loaded / e.total ) * 100;
+								perc = perc.toFixed(2);
+								$imgNotice.html('Uploading&hellip;(' + perc + '%)');
+							}
+						}, false );
+					}
+
+					return myXhr;
+				},*/
+				type: 'POST',
+				/*beforeSend: function() {
+					$imgFile.hide();
+					$imgNotice.html('Uploading&hellip;').show();
+				},*/
+				success: function(resp) {
+					if ( resp.success ) {
+						field = parent.find( '[data-id="url-file"]' );
+						field.val(resp.data.url);
+
+					} else {
+						alert('Something went wrong, please try again.');
+					}
+				}
+			});
 		});
 	});
 	

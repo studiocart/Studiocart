@@ -10,13 +10,28 @@
  * @subpackage Studiocart/admin/partials
  */
 
+$default_atts = array(  'value'=>'',
+                        'placeholder'=>'',
+                        'class'=>'',
+                        'id'=>'',
+                     'note'=>	'');
 
-$replace = ($atts['value'] && $atts['value'] != '...') ? $atts['value'] : 0;
-$atts['class'] = str_replace('{val}',$replace[0] , $atts['class']);
+$atts = wp_parse_args($atts,$default_atts);
+
+$replace = (isset($atts['value']) && $atts['value'] != '...') ? $atts['value'] : '';
+if($replace && strpos($atts['class'],'{val}') !== false) {
+    $atts['class'] = str_replace('{val}', $replace, $atts['class']);
+}
 
 if ( ! empty( $atts['label'] ) ) {
 
-    ?><label for="<?php echo esc_attr( $atts['id'] ); ?>"><?php esc_html_e( $atts['label'], 'employees' ); ?> </label><?php
+    ?><label for="<?php echo esc_attr( $atts['id'] ); ?>"><?php esc_html_e( $atts['label'], 'ncs-cart' ); ?> 
+
+    <?php if (! empty($atts['description'])):?>
+        <i class="sc-tooltip" data-balloon-length="medium" aria-label="<?php esc_html_e( $atts['description'], 'ncs-cart' ); ?>" data-balloon-pos="up">?</i>
+    <?php endif; ?>
+
+    </label><?php
 
 }
 echo '<div style="flex-grow: 1;">';
@@ -26,15 +41,7 @@ if($atts['id'] == 'converkit_tags' || $atts['id'] == 'mail_groups' || $atts['id'
             aria-label="<?php esc_attr( _e( $atts['label'], 'ncs-cart' ) ); ?>"
             class="<?php echo esc_attr( $atts['class'] ); ?>"
             id="<?php echo esc_attr( $atts['id'] ); ?>"
-            name="<?php echo esc_attr( $atts['id'] ); ?>[]">
-<?php
-} else if ($atts['id'] == 'type') { // needed to avoid warnings on post save
-    ?>
-        <select
-            aria-label="<?php esc_attr( _e( $atts['label'], 'ncs-cart' ) ); ?>"
-            class="<?php echo esc_attr( $atts['class'] ); ?>"
-            id="<?php echo esc_attr( $atts['id'] ); ?>"
-            name="coupon_<?php echo esc_attr( $atts['id'] ); ?>[]">
+            name="<?php echo esc_attr( $atts['name'] ); ?>[]">
 <?php
 } else {
 ?>
@@ -57,22 +64,52 @@ if ( ! empty( $atts['blank'] ) ) {
 
 }
 if (is_array($atts['selections'])) {
-    foreach ( $atts['selections'] as $value=>$label ) {
+    foreach ( $atts['selections'] as $value => $label ) {
+
+        if(is_array($label)){
+
+            foreach($label as $v => $l){
+            ?>
+                <optgroup label="<?php echo $l['type']?>">
+                <option
+            value="<?php echo esc_attr( $l['value'] ); ?>" <?php
+            if (!is_countable($atts['value'])) {
+                selected( $atts['value'], $l['value'] ); 
+
+            } else if (in_array( $l['value'], $atts['value'] )) {
+                echo 'selected="selected"';
+            } else ?>><?php
+
+            esc_html_e( $l['name'], 'ncs-cart' );
+
+        ?></option>
+                </optgroup>
+                <?php
+            }
+
+        }else{
 
         ?><option
             value="<?php echo esc_attr( $value ); ?>" <?php
-            if (is_array($atts['value']) && in_array( $value, $atts['value'] )) {
-                echo 'selected="selected"';
-            }
-            selected( $atts['value'], $value ); ?>><?php
+            if (!is_countable($atts['value'])) {
+                selected( $atts['value'], $value ); 
 
+            } else if (in_array( $value, $atts['value'] )) {
+                echo 'selected="selected"';
+            } else ?>><?php
+
+            if(is_object($label)){
+                esc_html_e( $label->name, 'ncs-cart' );
+            }else{
             esc_html_e( $label, 'ncs-cart' );
+            }
 
         ?></option><?php
+    }
 
     } // foreach
 }
 ?></select>
-<?php if (isset($atts['description'])):?>
-<p class="description"><?php echo wp_specialchars_decode( $atts['description'], 'ENT_QUOTES' ); ?></p>
-            <?php endif; ?></div>
+<?php if (! empty($atts['note'])):?>
+	<p class="description"><?php echo wp_specialchars_decode( $atts['note'], 'ENT_QUOTES' ); ?></p>
+<?php endif; ?></div>

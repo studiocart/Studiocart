@@ -1,0 +1,6 @@
+Country Code,State Code,ZIP/Postcode,City,Rate %,Tax Name,Priority
+GB,*,*,*,20,VAT,1
+GB,*,*,*,5,VAT,1
+GB,*,*,*,0,VAT,1
+US,*,*,*,10,US,1
+US,AL,12345; 123456,*,2,US AL,2

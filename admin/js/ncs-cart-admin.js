@@ -40,7 +40,15 @@ function ncs_settings(id){
     jQuery("#settings_tab_"+id).addClass('nav-tab-active');
 }
 
-
+jQuery(document).on('change','.price',function(){
+    let re = /^[0-9.,]+$/;
+    let price = jQuery(this).val();
+    if (re.test(price)) {
+        
+    } else {
+        jQuery(this).val("");
+    }
+});
 jQuery(document).ready(function($){
     jQuery('#content_tab_emails h2:not(:first)').addClass('email_title_trigger');
     jQuery('.email_title_trigger').next('table').hide();
@@ -66,7 +74,60 @@ jQuery(document).ready(function($){
         });
     });
     
-    $('.default_field_disabled').each(function(){
+    $('#sc-email-type').change(function(){
+        var email = $(this).val(),
+            link = $('#sc-preview-email').attr('href').replace(/\[[a-z]+\]/, '['+email+']');
+        $('#sc-preview-email').attr('href',link);        
+    });
+    
+    $("#sc-email-send").click(function(){
+        var wp_nonce    = sc_reg_vars.nonce,
+            ajax_url    = sc_reg_vars.sc_ajax_url,
+            type        = $('#sc-email-type').val();
+            
+        var data = {
+            'action': 'sc_send_email_test',
+            'nonce': wp_nonce,
+            'type': type
+        };
+
+        // We can also pass the url value separately from ajaxurl for front end AJAX implementations
+        jQuery.post(ajax_url, data, function(response) {
+            //console.log(response);
+            if(response){
+                alert(response);
+            }
+        }).fail(function() {
+            alert(sc_translate_backend.try_again);
+        });
+        return false;
+    });
+    
+    function addTextIntoEditor(myText){
+        tinymce.activeEditor.execCommand('mceInsertContent', false, myText);
+    }
+    
+    $('.sc-insert-merge-tag').change(function(){
+        if($(this).val() == '') {
+            return;
+        }
+        
+        var text = '{'+$(this).val()+'}';
+        addTextIntoEditor(text);
+        $(this).val('');
+    });
+    
+    $('.ridoption_id input, .ridfield_id input, .ridurl_slug input').keyup(function(){
+        var val = $(this).val().replace(/\s+/g, '-');
+        $(this).val(val);
+    });
+    
+    $('.ridfield_id input').keyup(function(){
+        var val = $(this).val().replace(/[^a-zA-Z0-9\-_]/g, "").toLowerCase();
+        $(this).val(val);
+    });
+    
+    $('.default_field_disabled, .file_hide').each(function(){
         if($(this).is(':checked')) {
             $(this).closest('.repeater').addClass('disabled');
         } else {
@@ -74,7 +135,7 @@ jQuery(document).ready(function($){
         }
     });
     
-    $('.default_field_disabled').change(function(){
+    $('.default_field_disabled, .file_hide').change(function(){
         if($(this).is(':checked')) {
             $(this).closest('.repeater').addClass('disabled');
         } else {
@@ -105,7 +166,7 @@ jQuery(document).ready(function($){
     flatpickr('.datepicker', {enableTime: true,dateFormat: "Y-m-d h:i K",allowInput: true});
     
     // hide amount recurring field if coupon type = fixed
-    $("#repeater_sc_coupons [name^=\"coupon_type[\"]").each(function(index){
+    $("#repeater_sc_coupons [name^=\"_sc_coupons[type][\"]").each(function(index){
         if ( $(this).val() == "fixed" ) { 
             $(this).closest(".repeater-content").find(".ridamount_recurring").css({opacity: 0, display: "flex"}).animate({opacity: 1}, 400); 
         } else { 
@@ -118,7 +179,7 @@ jQuery(document).ready(function($){
             $(this).closest(".repeater-content").find(".ridduration").hide() 
         }
     });
-    $("#repeater_sc_coupons [name^=\"coupon_type[\"]").on("change", function(){
+    $("#repeater_sc_coupons [name^=\"_sc_coupons[type][\"]").on("change", function(){
         if ( $(this).val() == "fixed" ) { 
             $(this).closest(".repeater-content").find(".ridamount_recurring").css({opacity: 0, display: "flex"}).animate({opacity: 1}, 400); 
         } else { 
@@ -152,10 +213,10 @@ jQuery(document).ready(function($){
     });
     
     $('.sc-settings-tabs .required').each(function(){
-        $(this).closest('.wrap-field').find('label').append('<span class="req">*</span>')
+        $(this).closest('.wrap-field, .sc-field.sc-row ').find('label').append('<span class="req">*</span>')
     });
     
-    $('.sc-tab').eq(0).show();
+    $('.sc-tab').eq(0).css({'display':'flex',opacity: 1});
     $('.sc-tab-nav a').click(function(){
         
         var errors = false;
@@ -184,13 +245,18 @@ jQuery(document).ready(function($){
             $(this).removeClass('error')
         }
     });
+    $('.sc-settings-tabs').on('change', '.required', function(){
+        if ($(this).val() != '') {
+            $(this).removeClass('error')
+        }
+    });
     
     jQuery('#_sc_currency, .form-table #_sc_country, #_sc_menu_icon').selectize({
         create: true,
         sortField: 'text'
     }); 
     
-    $('.select2').each(function(){
+    $('.sc-selectize').each(function(){
         $(this).find('option[value=""]').remove();
         var hidden = $(this).closest('.repeater.hidden');
         if(hidden.length < 1) {
@@ -326,7 +392,7 @@ jQuery(document).ready(function($){
 	
 	// show edit order fields
 	if ( $('#edit-order').length > 0 ) {
-		var $editFields = $('#normal-sortables').hide();
+		var $editFields = $('#normal-sortables, #edit-disabled').hide();
 
         $('#edit-order').click(function(){
             
@@ -339,6 +405,19 @@ jQuery(document).ready(function($){
 			return false;
 		});
 	}
+    
+    if($('.repeater-content .update-plan').length) {
+        $('.repeater-content .update-plan').each(function(){
+            var val = $(this).attr('class').split(" ");
+            $.each(val, function (k,e) {
+                if(e.startsWith("ob-")) {
+                    val = e.replace('ob-', '');
+                }
+                $(this).val(val);
+                return;
+            });
+        });
+    }
     
     $('.update-plan-product').on('change', function(){
         var post_id     = $(this).closest('.sc-tab, .repeater').find('.update-plan-product').eq(0).val(),
@@ -355,6 +434,10 @@ jQuery(document).ready(function($){
             'post_id': post_id,
             'selected' : selected
         };
+
+        if($(this).hasClass('recurring')) {
+            data.type = 'recurring'
+        }
 
         // We can also pass the url value separately from ajaxurl for front end AJAX implementations
         jQuery.post(ajax_url, data, function(response) {
@@ -416,6 +499,52 @@ jQuery(document).ready(function($){
 			});
 		}
 	});
+    
+    /**
+         * Pause Start Subscription
+         */
+        $('.sc_pause_restart').click(function(){
+
+            var confirmMessage = sc_translate_backend.confirm_pause_sub;
+            var successMessage = sc_translate_backend.sub_paused;
+            var type = $(this).data('action');
+
+            if(type == 'started'){
+                confirmMessage = sc_translate_backend.confirm_activate_sub;
+                successMessage = sc_translate_backend.sub_started;
+            }
+
+            if (confirm(confirmMessage)) { 
+                var ajaxurl = sc_reg_vars.sc_ajax_url;
+                var _this = $(this);
+                var id = _this.data('id');
+                var wp_nonce	= sc_reg_vars.nonce;
+                var payment_method	= $("#sc_payment_method").val();
+
+                var data = {
+                    'action': 'sc_pause_restart_subscription',
+                    'nonce': wp_nonce,
+                    'id': id,
+                    'payment_method': payment_method,
+                    'type':type,
+                };
+
+                // We can also pass the url value separately from ajaxurl for front end AJAX implementations
+                jQuery.post(ajaxurl, data, function(response) {
+                    console.log(response);
+                    if( response == 'OK' ){
+                        alert(successMessage); //custom message
+                        location.reload();
+                    }else{
+                            alert(response);
+                    }
+                }).fail(function() {
+                    alert(response.fail);  
+                });
+            } else {
+                return false;
+            } 
+    });
 	
 	//.sc_unsubscribe_btn
 	//UNSUBSCRIBE
@@ -560,14 +689,249 @@ jQuery(document).ready(function($){
 	function isEmpty(str) {
 		return (!str || 0 === str.length || undefined === str);
 	}
+    
+    // coupon symbol toggle on amount off input
+    $("[name^=\"_sc_coupons[type][\"]").each(function(){
+        var $symbol = $(this).closest('.repeater-content').find('.input-prepend,.input-append').eq(0);
+        $(this).data('symbol', $symbol.text());
+        $(this).data('class', $symbol.attr('class'));
+        
+        if($(this).val().includes("percent")) {
+            $symbol.text('%').attr('class', 'input-append').next('input').addClass('right-currency');
+        }
+    });
+    
+    $(document).on('change', "[name^=\"_sc_coupons[type][\"]", function(){
+        var $symbol = $(this).closest('.repeater-content').find('.input-prepend,.input-append').eq(0);
+        if($(this).val().includes("percent")) {
+            $symbol.text('%').attr('class', 'input-append').next('input').addClass('right-currency');
+        } else {
+            $symbol.text($(this).data('symbol')).attr('class', $(this).data('class'));
+            if($(this).data('class') == 'input-prepend') {
+                $symbol.next('input').removeClass('right-currency');
+            }
+        }
+    });
+    
+    $('input[type=checkbox][name^=_sc_upsell],input[type=checkbox][name^=_sc_downsell]').each(function(){
+        if(!$(this).is(':checked')) {
+            $(this).closest('.sc-tab').find('.sc-field').hide();
+            $(this).closest('.sc-tab').find('.sc-field:first-child').show();
+        }
+    });
+    $('input[type=checkbox][name^=_sc_upsell],input[type=checkbox][name^=_sc_downsell]').change(function(){
+        if(!$(this).is(':checked')) {
+            $(this).closest('.sc-tab').find('.sc-field:not(:first-child)').fadeOut();
+            $(this).closest('.sc-tab').find('.sc-field:first-child').show();
+        } else {
+            $(this).closest('.sc-tab').find('.sc-field').fadeIn();
+            var type = $(this).closest('.sc-tab').find('input[name^=_sc_us_prod_type],input[name^=_sc_ds_prod_type]').eq(0);
+            if(type.is(':checked')) {
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').hide();
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').show();
+            } else {
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').show();
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').hide();
+            }
+        }
+    });
 
+    $('input[name^=_sc_us_prod_type],input[name^=_sc_ds_prod_type]').each(function(){
+        var enabled = $(this).closest('.sc-tab').find('input[type=checkbox][name^=_sc_upsell],input[type=checkbox][name^=_sc_downsell]').is(':checked');
+        if($(this).is(':checked')) {
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').hide();
+            if(enabled) {
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').show();
+            }
+        } else {
+            if(enabled) {
+                $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').show();
+            }
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').hide();
+        }
+    });
+
+    $('input[name^=_sc_us_prod_type],input[name^=_sc_ds_prod_type]').change(function(){
+        if($(this).is(':checked')) {
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').hide();
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').show();
+        } else {
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_price], [id^=rid_sc_us_price]').show();
+            $(this).closest('.sc-tab').find('[id^=rid_sc_ds_plan], [id^=rid_sc_us_plan]').hide();
+        }
+    });
+
+    $('.ridbump,.ridupsell').hide();
+    $('.cinput-action').change(function(){
+        var $row = $(this).closest('.wrap-fields');
+        if($(this).val()=='') {
+            $row.find('.wrap-field').not('.ridaction').hide();
+        } else {
+            $row.find('.ridproduct_type').show();
+            $row.find('.cinput-product_type').each(function(){
+                if(!$(this).is(":hidden")){
+                    var $parent = $(this).closest('.condition'),
+                        $plans = $parent.find('.ridplan'),
+                        $bumps = $parent.find('.ridbump'),
+                        $upsells = $parent.find('.ridupsell');
+
+                    if($(this).val()=='plan') {
+                        $bumps.hide();
+                        $upsells.hide();
+                        $plans.fadeIn(300);
+                    } else if($(this).val()=='bump') {
+                        $bumps.fadeIn(300);
+                        $upsells.hide();
+                        $plans.hide();
+                    } else if($(this).val()=='upsell' || $(this).val()=='downsell') {
+                        $bumps.hide();
+                        $upsells.fadeIn(300);
+                        $plans.hide();
+                    } else {
+                        $bumps.hide();
+                        $upsells.hide();
+                        $plans.hide();
+                    }
+                }
+            });
+        }
+    });
+    
+    // Conditional confirmations
+    
+    $('.condition-content .cinput-product_type').each(function(){
+        var $parent = $(this).closest('.condition'),
+            $plans = $parent.find('.ridplan'),
+            $bumps = $parent.find('.ridbump'),
+            $upsells = $parent.find('.ridupsell');
+
+        if($(this).val()=='plan') {
+            $bumps.hide();
+            $upsells.hide();
+            $plans.fadeIn(300);
+        } else if($(this).val()=='bump') {
+            $bumps.fadeIn(300);
+            $upsells.hide();
+            $plans.hide();
+        } else if($(this).val()=='upsell' || $(this).val()=='downsell') {
+            $bumps.hide();
+            $upsells.fadeIn(300);
+            $plans.hide();
+        } else {
+            $bumps.hide();
+            $upsells.hide();
+            $plans.hide();
+        }
+    });
+    
+    $(document).on('change', '.condition-content .cinput-product_type', function(){
+        var $parent = $(this).closest('.condition'),
+            $plans = $parent.find('.ridplan'),
+            $bumps = $parent.find('.ridbump'),
+            $upsells = $parent.find('.ridupsell');
+        
+        if($(this).val()=='plan') {
+            $bumps.hide();
+            $upsells.hide();
+            $plans.fadeIn(300);
+        } else if($(this).val()=='bump') {
+            $bumps.fadeIn(300);
+            $upsells.hide();
+            $plans.hide();
+        } else if($(this).val()=='upsell' || $(this).val()=='downsell') {
+            $bumps.hide();
+            $upsells.fadeIn(300);
+            $plans.hide();
+        } else {
+            $bumps.hide();
+            $upsells.hide();
+            $plans.hide();
+        }
+    });
+    
+    $('.ridcfield_value input').each(function(){
+        var value = $(this).closest('.condition-content').find('.ridcfield select').val();
+        var descriptions = $(this).next('.description').find('span');
+        descriptions.hide();
+                
+        if(value=='country') {
+            $(this).parent().find('.description .country').show();
+        } else if(value=='state') {
+            $(this).parent().find('.description .state').show();           
+        }
+    });
+    $(document).on('change', '.ridcfield select', function(){
+        var value = $(this).val();
+        var descriptions = $(this).closest('.condition-content').find('.ridcfield_value .description span');
+        descriptions.hide();
+                
+        if(value=='country' || value=='state') {
+            $(this).closest('.condition-content').find('.ridcfield_value .description span.'+value).show();
+        }
+    });
+    
+    $('select.condition-type').each(function(){
+        var rows = $(this).closest('.repeater-content').find('.conditions .wrap-fields');
+        if($(this).val()=='and') {
+            rows.removeClass('condition-type-or').addClass('condition-type-and');
+        } else {
+            rows.removeClass('condition-type-and').addClass('condition-type-or');            
+        }
+    });
+    $(document).on('change', '.condition-type', function(){
+        var rows = $(this).closest('.repeater-content').find('.conditions .wrap-fields');
+        if($(this).val()=='and') {
+            rows.removeClass('condition-type-or').addClass('condition-type-and').fadeIn();
+        } else {
+            rows.removeClass('condition-type-and').addClass('condition-type-or').fadeIn();            
+        }
+    });
+    
+    $('.cinput-action').each(function(){
+        var rows = $(this).closest('.repeater-content').find('.conditions .wrap-fields');
+        if($(this).val()=='') {
+            $(this).closest('.wrap-fields').find('.wrap-field').not('.ridaction').hide();
+        }
+    });
+    
+    $('.condition-content .cinput-action').each(function(){
+        var $parent = $(this).closest('.condition'),
+            $fields = $parent.find('[class^=ridcfield]'),
+            $plans = $parent.find('.ridplan'),
+            $type = $parent.find('.ridproduct_type');
+        if($(this).val()=='field-value') {
+            $type.hide().find('.cinput-product_type').val('plan');
+            $fields.show();
+            $plans.hide();
+        } else {
+            $fields.hide();
+            $type.show();
+        }
+    });
+    
+    $(document).on('change', '.condition-content .cinput-action', function(){    
+        var $parent = $(this).closest('.condition'),
+            $fields = $parent.find('[class^=ridcfield]'),
+            $plans = $parent.find('.ridplan'),
+            $type = $parent.find('.ridproduct_type');
+        if($(this).val()=='field-value') {
+            $type.hide().find('.cinput-product_type').val('plan').trigger('change');
+            $fields.show();
+            $plans.hide();
+        } else {
+            $fields.hide();
+            $type.show();
+        }
+    });
 
     $(document).on('change','#_sc_vat_enable',function(){
         if(this.checked){
+            $('#_sc_vat_reverse_charge').parents('tr').fadeIn(100);
             $('#_sc_vat_merchant_state').parents('tr').fadeIn(100);
             $('#_sc_vat_all_eu_businesses').parents('tr').fadeIn(200);
             $('#_sc_vat_disable_vies_database_lookup').parents('tr').fadeIn(300);
         }else{
+            $('#_sc_vat_reverse_charge').parents('tr').fadeOut(300);
             $('#_sc_vat_merchant_state').parents('tr').fadeOut(300);
             $('#_sc_vat_all_eu_businesses').parents('tr').fadeOut(200);
             $('#_sc_vat_disable_vies_database_lookup').parents('tr').fadeOut(100);
