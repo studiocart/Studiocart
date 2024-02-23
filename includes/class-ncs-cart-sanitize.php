@@ -63,32 +63,34 @@ class NCS_Cart_Sanitize {
 
 		switch ( $this->type ) {
 
-			case 'color'			:
-			case 'radio'			:
-			case 'select'			: $sanitized = $this->sanitize_random( $this->data ); break;
+			case 'color'				:
+			case 'radio'				:
+			case 'select'				: $sanitized = $this->sanitize_random( $this->data ); break;
 
-			case 'date'				:
-			case 'datetime'			:
-			case 'datetime-local'	:
-			case 'time'				:
-			case 'week'				: $sanitized = strtotime( $this->data ); break;
+			case 'date'					:
+			case 'datetime'				:
+			case 'datetime-local'		: $sanitized = sanitize_text_field($this->data); break;
+			case 'time'					:
+			case 'week'					: $sanitized = strtotime( $this->data ); break;
 
-			case 'price'			: $sanitized = floatval( $this->data ); break;
-            case 'number'			: $sanitized = intval( $this->data ); break;
-			case 'range'			: $sanitized = intval( $this->data ); break;
+			case 'price'				: $sanitized = $this->format_price(); break;
+            case 'number'				: $sanitized = intval( $this->data ); break;
+			case 'range'				: $sanitized = intval( $this->data ); break;
 
-			case 'hidden'			: $sanitized = sanitize_text_field( $this->data ); break;
-			case 'month'			:
-			case 'text'				: $sanitized = sanitize_text_field( $this->data ); break;
+			case 'hidden'				: $sanitized = sanitize_text_field( $this->data ); break;
+			case 'month'				:
+			case 'text'					: $sanitized = sanitize_text_field( $this->data ); break;
 
-			case 'checkbox'			: $sanitized = ( isset( $this->data ) ? 1 : 0 ); break;
-			case 'editor' 			: $sanitized = wp_kses_post( $this->data ); break;
-			case 'email'			: $sanitized = sanitize_email( $this->data ); break;
-			case 'file'				: $sanitized = sanitize_file_name( $this->data ); break;
-			case 'tel'				: $sanitized = $this->sanitize_phone( $this->data ); break;
-			case 'textarea'			: $sanitized = esc_textarea( $this->data ); break;
-			case 'file-upload'		: $sanitized = esc_url( $this->data ); break;
-			case 'url'				: $sanitized = esc_url( $this->data ); break;
+			case 'checkbox'				: $sanitized = ( isset( $this->data ) ? 1 : 0 ); break;
+			case 'html' 				: $sanitized = wp_kses_post( $this->data ); break;
+			case 'editor' 				: $sanitized = wp_kses_post( $this->data ); break;
+			case 'email'				: $sanitized = sanitize_email( $this->data ); break;
+			case 'file'					: $sanitized = sanitize_file_name( $this->data ); break;
+			case 'tel'					: $sanitized = $this->sanitize_phone( $this->data ); break;
+			case 'textarea'				: $sanitized = esc_textarea( $this->data ); break;
+			case 'file-upload'			: $sanitized = esc_url( $this->data ); break;
+			case 'secure-file-upload'	: $sanitized = esc_url( $this->data ); break;
+			case 'url'					: $sanitized = esc_url( $this->data ); break;
 
 		} // switch
 
@@ -100,6 +102,57 @@ class NCS_Cart_Sanitize {
 		return $sanitized;
 
 	} // clean()
+
+	private function format_price(){
+		$thousand_sep = get_option( '_sc_thousand_separator' );
+        $decimal_sep = get_option( '_sc_decimal_separator' );
+		
+		$price = $this->data;
+
+		if($price){
+
+            if($thousand_sep && strpos($price, $thousand_sep) !== false){
+				$price = $this->is_thousand_separator($price,$thousand_sep,$decimal_sep);
+            } else if($decimal_sep  != ','){
+				$price = $this->is_thousand_separator($price,',',$decimal_sep);
+			}
+
+            if($decimal_sep && strpos($price, $decimal_sep) !== false){
+                $price = str_replace($decimal_sep, '.', $price);
+            }
+			
+        }
+
+		return $price;
+	}
+
+	private function is_thousand_separator($price,$thousand_sep,$decimal_sep){
+		
+		$parts = explode($thousand_sep, $price);
+
+		if(count($parts) > 1){
+			foreach($parts as $k => $v){
+				if($decimal_sep && strpos($v, $decimal_sep) !== false){
+					$decparts = explode($decimal_sep, $v);
+					$parts[$k] = $decparts[0];
+				}
+			}
+
+			$groupLengths = array_map('strlen', $parts);
+			if (max($groupLengths) == 3) {
+				if($groupLengths[0] == 3 && $groupLengths[1] != 3){
+					wp_redirect($_REQUEST['_wp_http_referer'].'&format_err='.$price);
+					die;
+				}
+				$price = str_replace($thousand_sep, '', $price);
+			}else{
+				wp_redirect($_REQUEST['_wp_http_referer'].'&format_err='.$price);
+				die;
+			}
+		}
+
+		return $price;
+	}
 
 	/**
 	 * Checks a date against a format to ensure its validity

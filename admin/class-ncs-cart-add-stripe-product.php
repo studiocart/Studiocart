@@ -75,43 +75,49 @@ class NCS_Cart_Product_Admin
         $post_title = get_the_title( $post_id );
         $stripe_product = $this->get_stripe_product( $post_id );
         foreach ( $objects['_sc_pay_options'] as $key => $option ) {
+            $option['option_name'] = $option['option_name'] ?? '';
+            $option['price'] = $option['price'] ?? '';
             $normal_price = array(
                 'name'       => $post_title . ' - ' . $option['option_name'],
                 'id'         => $option['option_id'],
-                'price'      => $option['price'],
-                'amount'     => (double) $option['price'],
-                'interval'   => $option['interval'],
-                'plan_id'    => $option['stripe_plan_id'],
-                'frequency'  => $option['frequency'],
+                'price'      => $option['price'] ?? '',
+                'amount'     => (double) $option['price'] ?? '',
+                'interval'   => $option['interval'] ?? '',
+                'plan_id'    => $option['stripe_plan_id'] ?? '',
+                'frequency'  => $option['frequency'] ?? '',
                 'field_name' => 'stripe_plan_id',
             );
             $sale_price = false;
-            if ( !empty($option['sale_option_name']) ) {
+            
+            if ( !empty($option['sale_price']) ) {
+                $option['sale_option_name'] = $option['sale_option_name'] ?? '';
                 $sale_price = array(
                     'name'       => $post_title . ' - ' . $option['sale_option_name'],
                     'id'         => $option['option_id'] . '_sale',
-                    'price'      => $option['sale_price'],
-                    'amount'     => (double) $option['sale_price'],
-                    'interval'   => $option['sale_interval'],
-                    'plan_id'    => $option['sale_stripe_plan_id'],
-                    'frequency'  => $option['sale_frequency'],
+                    'price'      => $option['sale_price'] ?? '',
+                    'amount'     => (double) $option['sale_price'] ?? '',
+                    'interval'   => $option['sale_interval'] ?? '',
+                    'plan_id'    => $option['sale_stripe_plan_id'] ?? '',
+                    'frequency'  => $option['sale_frequency'] ?? '',
                     'field_name' => 'sale_stripe_plan_id',
                 );
             }
+            
             $plans = array( $normal_price, $sale_price );
             foreach ( $plans as $plan ) {
                 
                 if ( $plan ) {
                     $_stripe_id = $plan['plan_id'];
-                    $plan['trial_days'] = ( isset( $option['trial_days'] ) ? $option['trial_days'] : NULL );
+                    //$plan['trial_days'] = isset($option['trial_days']) ? $option['trial_days'] : NULL;
+                    $option['product_type'] = $option['product_type'] ?? '';
                     // Create Stripe Plan
                     
                     if ( $option['product_type'] == "recurring" && $this->stripe && $stripe_product !== false ) {
                         try {
                             $retrieve_plan = $stripe->prices->retrieve( $_stripe_id );
-                            $plan_price_non_decimal = (string) get_sc_price( $plan['amount'], $sc_currency );
+                            $plan_price_non_decimal = (string) sc_price_in_cents( $plan['amount'], $sc_currency );
                             
-                            if ( $retrieve_plan->unit_amount != $plan_price_non_decimal || $retrieve_plan->recurring->interval != $plan['interval'] || $retrieve_plan->recurring->interval_count != $plan['frequency'] || $retrieve_plan->recurring->trial_period_days != $plan['trial_days'] || $retrieve_plan->metadata->sc_product_id != $post_id || $retrieve_plan->product != $stripe_product->id ) {
+                            if ( $retrieve_plan->unit_amount != $plan_price_non_decimal || $retrieve_plan->recurring->interval != $plan['interval'] || $retrieve_plan->recurring->interval_count != $plan['frequency'] || $retrieve_plan->metadata->sc_product_id != $post_id || $retrieve_plan->product != $stripe_product->id ) {
                                 $plan_id = $this->create_plan( $plan, $post_id, $stripe_product );
                                 if ( $plan_id ) {
                                     $objects['_sc_pay_options'][$key][$plan['field_name']] = $plan_id;
@@ -135,6 +141,63 @@ class NCS_Cart_Product_Admin
             }
         }
         update_post_meta( $post_id, '_sc_pay_options', $objects['_sc_pay_options'] );
+        
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            foreach ( $objects['_sc_coupons'] as $key => $option ) {
+                $_type = $option['type'] ?? '';
+                $_amount = $option['amount'] ?? '';
+                if ( $_type != 'percent' && !empty($option['amount_recurring']) ) {
+                    $_amount = $option['amount_recurring'];
+                }
+                $_id = $option['code'];
+                $_stripe_id = ( !empty($option['stripe_id']) ? $option['stripe_id'] : $_id );
+                $duration_months = ( isset( $option['duration'] ) && intval( $option['duration'] ) > 0 ? intval( $option['duration'] ) : null );
+                $duration = ( $duration_months == null ? 'forever' : 'repeating' );
+                if ( $this->stripe ) {
+                    try {
+                        $stripe_coupon = $stripe->coupons->retrieve( $this->format_coupon_id( $_stripe_id ) );
+                        $_stripe_coupon_amount_off = $stripe_coupon->amount_off;
+                        $_stripe_coupon_percent_off = $stripe_coupon->percent_off;
+                        $_stripe_coupon_duration = $stripe_coupon->duration;
+                        $_stripe_coupon_duration_months = $stripe_coupon->duration_in_months;
+                        
+                        if ( $_type == 'percent' && $_stripe_coupon_percent_off != $_amount || $_type == 'fixed' && $_stripe_coupon_amount_off != sc_price_in_cents( $_amount, $sc_currency ) || $duration != $_stripe_coupon_duration || $duration_months != $_stripe_coupon_duration_months ) {
+                            $stripe_coupon->delete();
+                            $coupon_id = $this->create_coupon__premium_only(
+                                $_stripe_id,
+                                $_amount,
+                                $_type,
+                                $sc_currency,
+                                $key,
+                                $duration,
+                                $duration_months
+                            );
+                            if ( $coupon_id ) {
+                                $objects['_sc_coupons'][$key]['stripe_id'] = $coupon_id;
+                            }
+                        } else {
+                            $objects['_sc_coupons'][$key]['stripe_id'] = $_stripe_id;
+                        }
+                    
+                    } catch ( Exception $e ) {
+                        $coupon_id = $this->create_coupon__premium_only(
+                            $_stripe_id,
+                            $_amount,
+                            $_type,
+                            $sc_currency,
+                            $key,
+                            $duration,
+                            $duration_months
+                        );
+                        if ( $coupon_id ) {
+                            $objects['_sc_coupons'][$key]['stripe_id'] = $coupon_id;
+                        }
+                    }
+                }
+            }
+            update_post_meta( $post_id, '_sc_coupons', $objects['_sc_coupons'] );
+        }
+    
     }
     
     public function get_stripe_product( $post_id )
@@ -206,12 +269,12 @@ class NCS_Cart_Product_Admin
             'interval'       => $plan['interval'],
             'interval_count' => $plan['frequency'],
         );
-        if ( isset( $plan['trial_days'] ) ) {
-            $recurring['trial_period_days'] = $plan['trial_days'];
-        }
+        /*if (isset($plan['trial_days'])) {
+              $recurring['trial_period_days'] = $plan['trial_days'];
+          }*/
         try {
             $stripe_plan = $stripe->prices->create( [
-                'unit_amount' => get_sc_price( $plan['amount'], $sc_currency ),
+                'unit_amount' => sc_price_in_cents( $plan['amount'], $sc_currency ),
                 'currency'    => $sc_currency,
                 'recurring'   => $recurring,
                 'product'     => $stripe_prod_id,

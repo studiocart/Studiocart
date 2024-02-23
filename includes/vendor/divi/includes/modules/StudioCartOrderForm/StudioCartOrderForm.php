@@ -334,6 +334,7 @@ class StudioCartOrderForm extends ET_Builder_Module {
 				'type'            => 'select',
 				'options'         => array(
 										'' => esc_html__( 'Default', 'ncs-cart' ),
+										'normal'  => esc_html__( 'Normal', 'ncs-cart' ),
 										'2-step'  => esc_html__( '2-Step Form', 'ncs-cart' ),
 										'opt-in'  => esc_html__( 'Opt-in Form', 'ncs-cart' ),
 									),
@@ -359,7 +360,7 @@ class StudioCartOrderForm extends ET_Builder_Module {
 	}
 	
 
-	public function render( $attrs, $content = null, $render_slug ) {			
+	public function render( $attrs, $content = null, $render_slug = null ) {			
 			ob_start();  
 			$hide_labels = $this->props['sc_hide_labels'];
 			$template = $this->props['sc_template'];

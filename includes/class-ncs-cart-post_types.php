@@ -21,7 +21,7 @@ class NCS_Cart_Post_Types
     /**
      * Create post types
      */
-    private function register_single_post_type(
+    static function register_single_post_type(
         $cap_type,
         $plural,
         $single,
@@ -44,7 +44,6 @@ class NCS_Cart_Post_Types
         $opts['publicly_querable'] = TRUE;
         $opts['query_var'] = TRUE;
         $opts['register_meta_box_cb'] = '';
-        $opts['rewrite'] = FALSE;
         $opts['show_in_admin_bar'] = TRUE;
         if ( $cpt_name != 'sc_offer' ) {
             $opts['show_in_menu'] = 'studiocart';
@@ -80,18 +79,20 @@ class NCS_Cart_Post_Types
         $opts['labels']['search_items'] = esc_html__( "Search {$plural}", 'ncs-cart' );
         $opts['labels']['singular_name'] = esc_html__( $single, 'ncs-cart' );
         $opts['labels']['view_item'] = esc_html__( "View {$single}", 'ncs-cart' );
-        $opts['rewrite']['ep_mask'] = EP_PERMALINK;
         $opts['rewrite']['feeds'] = FALSE;
         $opts['rewrite']['pages'] = TRUE;
         $opts['rewrite']['slug'] = esc_html__( strtolower( $plural ), 'ncs-cart' );
         $opts['rewrite']['with_front'] = FALSE;
-        $opts = apply_filters( 'sc-cart-cpt-options', $opts );
+        $opts = apply_filters( 'sc-cart-cpt-options', $opts, $cpt_name );
         if ( $cpt_name == 'sc_subscription' ) {
             $opts['capabilities']['create_posts'] = false;
         }
+        
         if ( $cpt_name == 'sc_product' ) {
             $opts['hierarchical'] = TRUE;
+            $opts['show_in_rest'] = TRUE;
         }
+        
         register_post_type( strtolower( $cpt_name ), $opts );
     }
     
@@ -122,29 +123,40 @@ class NCS_Cart_Post_Types
     public function create_custom_post_type()
     {
         $post_types_args = array( array(
-            'cap_type' => 'post',
+            'cap_type' => 'sc_product',
             'plural'   => __( 'Products', 'ncs-cart' ),
             'single'   => __( 'Product', 'ncs-cart' ),
             'cpt_name' => 'sc_product',
             'supports' => array( 'title', 'editor', 'thumbnail' ),
             'public'   => true,
         ), array(
-            'cap_type' => 'post',
+            'cap_type' => 'sc_order',
             'plural'   => __( 'Orders', 'ncs-cart' ),
             'single'   => __( 'Order', 'ncs-cart' ),
             'cpt_name' => 'sc_order',
             'supports' => false,
             'public'   => false,
         ), array(
-            'cap_type' => 'post',
+            'cap_type' => 'sc_subscription',
             'plural'   => __( 'Subscriptions', 'ncs-cart' ),
             'single'   => __( 'Subscription', 'ncs-cart' ),
             'cpt_name' => 'sc_subscription',
             'supports' => false,
             'public'   => false,
         ) );
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            $post_types_args[] = array(
+                'cap_type' => 'sc_us_path',
+                'plural'   => __( 'Upsell Paths', 'ncs-cart' ),
+                'single'   => __( 'Upsell Path', 'ncs-cart' ),
+                'cpt_name' => 'sc_us_path',
+                'supports' => array( 'title' ),
+                'public'   => false,
+            );
+        }
+        $post_types_args = apply_filters( 'studiocart_post_types', $post_types_args );
         foreach ( $post_types_args as $post_type ) {
-            $this->register_single_post_type(
+            $this::register_single_post_type(
                 $post_type['cap_type'],
                 $post_type['plural'],
                 $post_type['single'],
@@ -162,6 +174,7 @@ class NCS_Cart_Post_Types
             'single'   => __( 'Tag', 'ncs-cart' ),
             'tax_name' => 'sc_product_tag',
         ) );
+        $taxonomies = apply_filters( 'studiocart_taxonomies', $taxonomies );
         foreach ( $taxonomies as $taxonomy ) {
             $this->register_single_post_type_taxonomy( $taxonomy['plural'], $taxonomy['single'], $taxonomy['tax_name'] );
         }

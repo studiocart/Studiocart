@@ -78,7 +78,7 @@ class NCS_Cart_Customer_Reports {
 			'studiocart',
 			'',
 			'',
-			'manage_options',
+			'sc_manager_option',
 			$this->plugin_name . '-customer-reports',
 			array( $this, 'render_reports_page_content' )
 		);
@@ -285,14 +285,14 @@ class NCS_Cart_Customer_Reports {
                                                 <?php if(isset($order->us_parent)){  ?>
                                                 <span class="order-plan upsell"><?php esc_html_e('Upsell', 'ncs-cart'); ?></span>
                                                 <?php } elseif(isset($order->ds_parent)){ ?>
-                                                 <span class="order-plan upsell-2"><?php esc_html_e('2nd upsell', 'ncs-cart'); ?></span>
+                                                 <span class="order-plan upsell-2"><?php esc_html_e('Downsell', 'ncs-cart'); ?></span>
                                                 <?php } else { ?>
                                                  <span class="order-plan"><?php if (isset($order->item_name)) { echo $order->item_name; } ?></span> 
                                                 <?php  } ?>
                                                 
                                                 <span class="divider">&middot;</span>
                                                 
-                                                <?php echo ucwords($status); ?>
+                                                <?php echo $order->status_label; ?>
                                                 
                                                 <span class="divider">&middot;</span>
                                                 
@@ -317,7 +317,7 @@ class NCS_Cart_Customer_Reports {
 
                                                     <span class="divider">&middot;</span>
 
-                                                    <?php echo ucwords($status); ?>
+                                                    <?php echo $order->status_label; ?>
 
                                                     <span class="divider">&middot;</span>
 
@@ -328,11 +328,18 @@ class NCS_Cart_Customer_Reports {
                                             </td>
                                         </tr>
                                     <?php endif; ?>
-                        <?php
+                            <?php
                             } }
-                        $paid_amount = array_sum($paidarray);
-                        $refunded_amount = array_sum($refundedarray);
-                        $total_amount = $paid_amount - $refunded_amount;?>
+                                                               
+                            $refunded_amount = $paid_amount = 0;
+                            if(is_countable($paidarray)){
+                                $paid_amount = array_sum($paidarray);
+                            }
+                            if(is_countable($refundedarray)){
+                                $refunded_amount = array_sum($refundedarray);
+                            }
+                            $total_amount = $paid_amount - $refunded_amount;
+                            ?>
                                                                
                        </tbody>
                     </table>
@@ -469,14 +476,14 @@ class NCS_Cart_Customer_Reports {
                                             wp_reset_postdata();
                                             $post = $backup;
                                         }
-                                        $order = sc_setup_order($post->ID);
+                                        $order = new ScrtOrder($post->ID);
                                         ?>
                                         <tr>
                                             <td valign="top"  ><a href="<?php echo admin_url( 'post.php?post='.$post->ID );?>&action=edit" ><?php echo  get_the_time( 'M j, Y', $post->ID ); ?></a></td>
                                             <td valign="top" ><?php echo get_the_title(get_post_meta( $post->ID, '_sc_product_id', true)); ?></td>
                                             <td valign="top" ><?php echo $order->sub_item_name; ?></td>
                                             <td valign="top" ><?php echo $order->sub_payment_terms; ?></td>                          
-                                            <td valign="top"><?php echo ucwords($status); ?></td>                    
+                                            <td valign="top"><?php echo $order->get_status(); ?></td>                    
                                             <td valign="top"><?php sc_formatted_price($total_amount); ?></td>
                                             <td valign="top"><?php echo $payments_remaining; ?></td>
                                         </tr>                         

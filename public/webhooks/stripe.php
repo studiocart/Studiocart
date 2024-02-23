@@ -1,5 +1,5 @@
 <?php 
-global $sc_stripe, $sc_currency;
+global $sc_stripe, $sc_currency, $sc_debug_logger;
 
 if(!isset($_SERVER['HTTP_STRIPE_SIGNATURE'])) {
     // Direct access
@@ -20,6 +20,7 @@ try {
     );
 } catch(\UnexpectedValueException $e) {
     // Invalid payload
+    $sc_debug_logger->log_debug("Stripe webhook error line 23: ".print_r($e, true));
     http_response_code(200);
     exit();
 } catch(\Stripe\Exception\SignatureVerificationException $e) {
@@ -34,22 +35,18 @@ try {
         );
     } catch(\UnexpectedValueException $e) {
         // Invalid payload
+        $sc_debug_logger->log_debug("Stripe webhook error line 38: ".print_r($e, true));
         http_response_code(200);
         exit();
     } catch(\Stripe\Exception\SignatureVerificationException $e) {
         // Invalid signature
+        $sc_debug_logger->log_debug("Stripe webhook error line 43: ".print_r($e, true));
         http_response_code(200);
         exit();
     }
 }
 
-function sc_format_stripe_number($amount, $sc_currency='USD') {
-    $zero_decimal_currency = get_sc_zero_decimal_currency();
-    if(!in_array($sc_currency, $zero_decimal_currency)){
-        $amount = $amount / 100;
-    }
-    return sc_format_number($amount);
-}
+$sc_debug_logger->log_debug("Stripe webhook data ".print_r($event->data->object, true));
 
 if($event->data->object->object == 'charge') {
     
@@ -81,28 +78,37 @@ if($event->data->object->object == 'charge') {
             exit();
         }
     }
-    $order = ScrtOrder::get_by_trans_id($charge->id);
-    if(!$order && isset($charge->payment_intent)) {
-        $order = ScrtOrder::get_by_trans_id($charge->payment_intent);
+    
+    if (isset($charge->metadata->sc_order_id)) {
+        $id = intval($charge->metadata->sc_order_id);
+        $order = new ScrtOrder($id);
+    } else {
+        $order = ScrtOrder::get_by_trans_id($charge->id);
+        if (!$order->id && isset($charge->payment_intent)) {
+            $order = ScrtOrder::get_by_trans_id($charge->payment_intent);
+            $order->transaction_id = $charge->id;
+        }
     }
-    if($order) {
-        $order->transaction_id = $charge->id;
+    
+    if($order && $order->id > 0) {
         $order->payment_status = $pay_status;
         $order->status = $post_status;
         $order->store();
     }
+    
     http_response_code(200);
     exit();
 }
 
 if($event->data->object->object == 'invoice') {
-    
+	
     $invoice = $event->data->object;
     $initial_order = false;
-    
+    $invoice_date = $invoice->status_transitions->finalized_at;
     $next_bill = $found = false;
+	
     foreach($invoice->lines->data as $item) {
-        if( isset($item->subscription_item) && (isset($item->metadata->sc_product_id) || isset($item->plan->metadata->sc_product_id)) ) {
+        if( isset($item->subscription_item) && (isset($item->metadata->sc_product_id) || isset($item->plan->metadata->sc_product_id) || isset($item->price->metadata->sc_product_id)) ) {
             
             if (isset($item->metadata->origin)) {
                 if ($item->metadata->origin != get_site_url()) {
@@ -118,8 +124,14 @@ if($event->data->object->object == 'invoice') {
             break;
         }
     }
+
+    $id = $invoice->subscription_details->metadata->sc_subscription_id ?? $subscription->metadata->sc_subscription_id ?? '';
+    $sub_id = $invoice->subscription ?? $subscription->subscription ?? '';
     
-    $sub = ScrtSubscription::get_by_sub_id($subscription->id);  
+    if(!$sub = ScrtSubscription::get_by_sub_id($sub_id)) {
+        $sub = new ScrtSubscription($id);
+    }
+	
     if (!$found || !$sub->id) {
         // charge is not related to a SC subscription
         http_response_code(200);
@@ -140,8 +152,8 @@ if($event->data->object->object == 'invoice') {
             $post_status = 'paid';
             break;
         case 'invoice.marked_uncollectible':
-            $post_status = 'uncollectible';
-            $pay_status = 'marked uncollectible';
+            $post_status = 'failed';
+            $pay_status = 'uncollectible';
             break;
         default:
             // Unexpected status
@@ -174,6 +186,7 @@ if($event->data->object->object == 'invoice') {
         $order->amount = sc_format_stripe_number($invoice->amount_paid, $sc_currency);
         $order->payment_status = $pay_status;
         $order->status = $post_status;
+        $order->set_date_from_timestamp($invoice_date);
         $order->store();
         
     } else {
@@ -182,6 +195,7 @@ if($event->data->object->object == 'invoice') {
             $order->payment_status = $pay_status;
             $order->status = $post_status;
             $order->store();
+            $order->set_date_from_timestamp($invoice_date);
         }
     }
     
@@ -219,39 +233,17 @@ if($event->data->object->object == 'invoice') {
                     break;
                 default:
                     $post_status = $sub->status;
+                    if(isset($sub->pause_collection) && $sub->pause_collection->behavior == 'void'){
+                        $post_status = 'paused';
+                    }
                     break;
             }
             break;
             
         case 'customer.subscription.deleted':
-                        
-            // check end date to see if this is a completed subscription
-            $args = array(
-                'post_type'  => 'sc_subscription',
-                'post_status' => 'active',
-                'meta_query' => array(
-                    array(
-                        'key' => '_sc_stripe_subscription_id',
-                        'value' => $sub->id,
-                    ),
-                    array(
-                        'key' => '_sc_sub_end_date', // Check the start date field
-                        'value' => date("Y-m-d"), // Set today's date (note the similar format)
-                        'compare' => '==', // Return the ones greater than today's date
-                        'type' => 'DATE' // Let WordPress know we're working with date
-                    )
-                )
-            );
-            
-            // if this subscription was scheduled to end today, mark the status as "completed" and exit
-            $posts = get_posts($args);
-            if (!empty($posts)) {
-                $post_status = 'past_due';
-            } else {
-                $post_status = 'canceled';
-            }
+			$post_status = 'canceled';
             break;
-            
+      
         default:
             // Unexpected status
             //echo 2;
@@ -262,6 +254,13 @@ if($event->data->object->object == 'invoice') {
     // find subscription and update status
     $existing = new ScrtSubscription($sub->metadata->sc_subscription_id);
     if($existing->id) {
+		
+		// if this is a payment plan, check end date to see if we should mark it as "complete"
+		if ($post_status == 'canceled' && $existing->sub_installments > 1 && $existing->order_count('paid') >= $existing->sub_installments && strtotime($existing->sub_end_date) <= strtotime(date('Y-m-d')) ) {
+			$post_status = 'completed';
+			
+		}
+			
         $existing->status = $post_status;
         $existing->sub_status = $sub->status;
         $existing->store();

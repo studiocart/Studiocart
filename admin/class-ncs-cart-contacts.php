@@ -74,7 +74,7 @@ class NCS_Cart_Contacts_page {
             'studiocart',
             apply_filters( $this->plugin_name . '-settings-page-title', esc_html__( 'Contacts', 'ncs-cart' ) ),
             apply_filters( $this->plugin_name . '-settings-menu-title', esc_html__( 'Contacts', 'ncs-cart' ) ),
-            'manage_options',
+            'sc_manager_option',
             $this->plugin_name . '-contacts-page',
             array( $this, 'render_page_contacts' )
         );
@@ -104,7 +104,7 @@ class NCS_Cart_Contacts_page {
                     </thead>
                     <tbody id="the-list">
                     <?php  
-                    $get_user = $wpdb->get_results("SELECT wp_posts.ID,wp_postmeta.meta_value FROM wp_posts INNER JOIN wp_postmeta ON ( wp_posts.ID = wp_postmeta.post_id ) WHERE 1=1 AND ( wp_postmeta.meta_key = '_sc_email' ) AND wp_posts.post_type = 'sc_order' AND ((wp_posts.post_status <> 'trash' AND wp_posts.post_status <> 'auto-draft')) ORDER BY `wp_posts`.`post_date` DESC");
+                    $get_user = $wpdb->get_results("SELECT {$wpdb->prefix}posts.ID,{$wpdb->prefix}postmeta.meta_value FROM {$wpdb->prefix}posts INNER JOIN {$wpdb->prefix}postmeta ON ( {$wpdb->prefix}posts.ID = {$wpdb->prefix}postmeta.post_id ) WHERE 1=1 AND ( {$wpdb->prefix}postmeta.meta_key = '_sc_email' ) AND {$wpdb->prefix}posts.post_type = 'sc_order' AND (({$wpdb->prefix}posts.post_status <> 'trash' AND {$wpdb->prefix}posts.post_status <> 'auto-draft')) ORDER BY `{$wpdb->prefix}posts`.`post_date` DESC");
                     $user_contact_array = array();
                     foreach ($get_user as $key => $post) {
                         $user_email = strtolower($post->meta_value); 
@@ -115,7 +115,7 @@ class NCS_Cart_Contacts_page {
                                 $total_amount = get_post_meta( $post->ID, '_sc_amount', true );
                                 if(is_array($refund_logs_entrie)) {
                                     $refund_amount = array_sum(array_column($refund_logs_entrie, 'amount'));
-                                    $total_amount = get_post_meta( $post->ID , '_sc_amount', true ) - $refund_amount;  
+                                    $total_amount = floatval(get_post_meta( $post->ID , '_sc_amount', true )) - $refund_amount;  
                                     $total_amount = $total_amount;
                                     $refundedarray[]= $refund_amount;                        
                                 } 

@@ -9,9 +9,18 @@
  * @package    Studiocart
  * @subpackage Studiocart/admin/partials
  */
+
+$default_atts = array(  'value'=>'',
+                        'class'=>'',
+                        'note'=>'',
+                        'description'=>'',
+                        'id'=>'');
+
+$atts = wp_parse_args($atts,$default_atts);
+
 $id = (isset($atts['rid'])) ? $atts['rid'] : $atts['id'];
 ?>
-<span class="label"><?php echo esc_attr( $atts['label'] ); ?></span>
+<span class="sc-label"><?php echo esc_attr( $atts['label'] ); ?></span>
 <div class="checkbox-wrap">
 <span class="ckbx-style">
     <input aria-role="checkbox"
@@ -25,6 +34,9 @@ $id = (isset($atts['rid'])) ? $atts['rid'] : $atts['id'];
     <label for="<?php echo esc_attr( $id ); ?>"></label>	
 </span>
 <?php if($atts['description']): ?>
-<p class="description" style="margin: 0"><?php esc_html_e( $atts['description'], 'ncs-cart' ); ?></p>
+<i class="sc-tooltip" data-balloon-length="medium" aria-label="<?php esc_html_e( $atts['description'], 'ncs-cart' ); ?>" data-balloon-pos="up">?</i>
+<?php endif; ?>
+<?php if($atts['note']): ?>
+	<p class="description"><?php echo wp_specialchars_decode( $atts['note'], 'ENT_QUOTES' ); ?></p>
 <?php endif; ?>
 </div>

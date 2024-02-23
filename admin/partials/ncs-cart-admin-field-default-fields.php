@@ -24,6 +24,7 @@ if($setatts['id']=='_sc_default_fields'){
         'last_name' => array('name'=>'last_name','label'=>esc_html__('Last Name', 'ncs-cart'),'required'=> true,'cols'=>6),
         'email' => array('name'=>'email','label'=>esc_html__('Email', 'ncs-cart'),'type'=>'email','required'=> true,'cols'=>6),
         'phone' => array('name'=>'phone','label'=>esc_html__('Phone Number', 'ncs-cart'),'cols'=>6),
+        'company' => array('name'=>'company','label'=>esc_html__('Company Name', 'ncs-cart'),'required'=> false,'cols'=>6),
     );
 } else if($setatts['id']=='_sc_address_fields'){
     $group = 'address';
@@ -46,9 +47,21 @@ $setatts['label-edit'] = __('Edit Field','ncs-cart');
 ?><ul id="<?php echo $repeater_id; ?>" class="repeaters"><?php
 
 	//for ( $i = 0; $i <= $count; $i++ ) {
-    $i = 0;    
+    $i = 0;
+    $use_defaults = false;
+
+    $saved_data = $repeater ?? array();
+        
     if(!$repeater) {
+        $use_defaults = true;
         $repeater = $default_fields;
+    } else {
+        // add default field info if missing from saved data
+        foreach($default_fields as $key=>$value) {
+            if(!isset($repeater[$key])) {
+                $repeater[$key] = $value;
+            }
+        }
     }
     
     foreach ( $repeater as $key => $saved ) {
@@ -58,6 +71,10 @@ $setatts['label-edit'] = __('Edit Field','ncs-cart');
         }
         
         $field = $default_fields[$key];
+                
+        if ( ($use_defaults && !isset($field['required'])) || (!$use_defaults && !isset($saved['default_field_required'])) ) {
+            $field['required'] = '';
+        }
 
 		$k = $field['name'];
         $key = str_replace('_','',$key);
@@ -65,7 +82,8 @@ $setatts['label-edit'] = __('Edit Field','ncs-cart');
 		$setatts['label-header'] = $field['label'];
         $setatts['class'] = 'repeater';
         
-        $hidden = isset($hide_fields[$key]);
+        // check $saved_data to see if key exists. If not, it's a new default field and should be hidden by default
+        $hidden = ($saved_data && !isset($saved_data[$k])) ? true : isset($hide_fields[$key]);
         
         if ($hidden) {
             $setatts['class'] .= ' disabled';
@@ -91,7 +109,7 @@ $setatts['label-edit'] = __('Edit Field','ncs-cart');
                 'label'		=> __('Required Field','ncs-cart'),
                 'placeholder'	=> '',
                 'type'		=> 'checkbox',
-                'value'		=> $field['required'],
+                'value'		=> $field['required'] ?? '',
                 'class_size'    => 'one-half',
             )),
             array(

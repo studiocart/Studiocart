@@ -159,7 +159,7 @@ class NCS_Cart_Admin_Ajax {
 						'tax_rate_meta' => 1,
 					)
 				);
-				NCS_Cart_Tax::update_tax_rate( $rate['id'], $tax_rate );
+				NCS_Cart_Tax::update_tax_rate( $rate['tax_rate_id'], $tax_rate );
 			}
 		}
 		return array(

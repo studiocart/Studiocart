@@ -18,9 +18,9 @@
 		</thead>
 		<tfoot>
 			<tr>
-				<th colspan="7">
-					<a href="#" class="button sc_button add_new_tax_rate"><?php _e( 'Insert row', 'ncs-cart' ); ?></a>
-					<a href="#" class="button sc_button remove_selected_tax_rates"><?php _e( 'Remove selected row(s)', 'ncs-cart' ); ?></a>
+			<th colspan="7">
+					<a href="javascript:void(0);" class="button sc_button add_new_tax_rate"><?php _e( 'Insert row', 'ncs-cart' ); ?></a>
+					<a href="javascript:void(0);" class="button sc_button remove_selected_tax_rates"><?php _e( 'Remove selected row(s)', 'ncs-cart' ); ?></a>
 					<input type="button" name="save" value="<?php _e( 'Save Tax Rates', 'ncs-cart' ); ?>" class="button button-primary save_table_rate">
 					<a href="#" download="ncs_tax_rates.csv" class="button export"><?php _e( 'Export CSV', 'ncs-cart' ); ?></a>
 					<a href="<?php echo admin_url( 'admin.php?import=ncs-cart_tax_rate_csv' ); ?>" class="button import"><?php _e( 'Import CSV', 'ncs-cart' ); ?></a>

@@ -16,12 +16,21 @@ $default_atts = array(  'type'		=>	'text',
                         'placeholder'=>	'',
 						'cols'		=>	'10',
 						'rows'		=>	'5',
-						'description'=>	'');
+						'description'=>	'',
+                        'note'=>	'');
 
 $atts = wp_parse_args($atts,$default_atts);
 if ( ! empty( $atts['label'] ) ) {
 
-	?><label for="<?php echo esc_attr( $atts['id'] ); ?>"><?php esc_html_e( $atts['label'], 'ncs-cart' ); ?> </label><?php
+	?><label for="<?php echo esc_attr( $atts['id'] ); ?>"><?php esc_html_e( $atts['label'], 'ncs-cart' ); ?> 
+    <?php
+    if ( ! empty( $atts['description'] ) ) {
+
+        ?><i class="sc-tooltip" data-balloon-length="medium" aria-label="<?php esc_html_e( $atts['description'], 'ncs-cart' ); ?>" data-balloon-pos="up">?</i>
+    <?php
+
+    } ?>
+    </label><?php
 
 }
 
@@ -35,5 +44,10 @@ if ( ! empty( $atts['label'] ) ) {
 
 	echo esc_html( $atts['value'] );
 
-?></textarea></div>
-<span class="description"><?php esc_html_e( $atts['description'], 'ncs-cart' ); ?></span></div>
+?></textarea>
+
+<?php if (! empty($atts['note'])):?>
+	<p class="description"><?php echo wp_specialchars_decode( $atts['note'], 'ENT_QUOTES' ); ?></p>
+<?php endif; ?>
+
+</div></div>

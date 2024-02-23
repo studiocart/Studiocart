@@ -30,7 +30,8 @@ class NCS_Cart_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
-
+		wp_clear_scheduled_hook( 'studiocart_daily_events', array('reminder') );
+		wp_clear_scheduled_hook( 'studiocart_daily_events', array('trial_ending') );
 	}
 
 }

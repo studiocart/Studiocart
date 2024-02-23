@@ -67,9 +67,17 @@ class GoogleRecaptcha {
     }
     
     public function google_recaptcha_validation() {
+
+        global $sc_debug_logger;
+
+        if(isset($_POST['intent_id']) || isset($_POST['action']) && $_POST['action'] == 'create_subscription') {
+            return;
+        }
+
         $site_secret = $this->site_secret;
         $recaptcha = sanitize_text_field($_POST['g-recaptcha-response']);
         $res = $this->reCaptcha($recaptcha, $site_secret);
+
         if(!empty($res['error-codes'][0])){
             $errorcodes = $res['error-codes'];
             
@@ -96,13 +104,16 @@ class GoogleRecaptcha {
                     $error = esc_html__('Something went wrong, please try again', 'ncs-cart' );
                     break;
             }
+
+            $sc_debug_logger->log_debug($error . " - " . print_r($res, true), 4);
+
             echo json_encode(array('error' => $error));
-            exit; 
+            exit(); 
         }
         
         if ($this->version_type == 'v3' && $res["score"] < $this->score) {
             echo json_encode(array('error' => esc_html__('Something went wrong, please try again!', 'ncs-cart' )));
-            exit; 
+            exit(); 
         }
     }
 
@@ -178,7 +189,7 @@ class GoogleRecaptcha {
 			),		
 
 			$this->service_name.'-v2site_secret' => array(
-				'type'          => 'text',
+				'type'          => 'password',
 				'label'         => esc_html__( 'Site Secret', 'ncs-cart' ),
 				'settings'      => array(
 					'id'            => '_sc_'.$this->service_name.'v2_site_secret', 
@@ -202,7 +213,7 @@ class GoogleRecaptcha {
 			),		
 			
 			$this->service_name.'-v3site_secret' => array(
-				'type'          => 'text',
+				'type'          => 'password',
 				'label'         => esc_html__( 'Site Secret', 'ncs-cart' ),
 				'settings'      => array(
 					'id'            => '_sc_'.$this->service_name.'v3_site_secret',

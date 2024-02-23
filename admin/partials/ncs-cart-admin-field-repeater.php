@@ -58,7 +58,7 @@ $didscripts = false;
 
 						foreach ( $field as $type => $atts ) {                            
 
-                            if ($atts['id'] ==  'ob_plan' && !empty($prod_id)) {
+                            if ( ($atts['id'] == 'ob_plan' || $atts['id'] == 'prod_plan') && !empty($prod_id) ) {
                                 $atts['selections'] = $atts['selections'][$prod_id];                            
                             }
 
@@ -67,11 +67,15 @@ $didscripts = false;
 							if ( ! empty( $repeater ) && isset( $repeater[$i][$atts['id']] ) ) {
 
 								$atts['value'] = $repeater[$i][$atts['id']];
-                                if ($atts['id'] ==  'ob_product') {
+                                if ($atts['id'] ==  'ob_product' || $atts['id'] ==  'prod_product') {
                                     $prod_id = $atts['value'];
                                 }
 
 							}
+                            
+                            /*if($atts['id'] == 'conditions') {
+                                var_dump($atts);
+                            }*/
                             
                             if(isset($setting_field) && $setting_field){
 
@@ -82,7 +86,7 @@ $didscripts = false;
                                 }
                             }
 
-							$atts['name'] 	  = $atts['id'].'['.$k.']';
+							$atts['name'] = sprintf('%s[%s][%s]', $setatts['id'], $atts['id'], $k);
 
 							?><div class="rid<?php echo esc_attr( $atts['id'] ); ?> wrap-field <?php echo esc_attr( $atts['class_size'] ); ?>"><?php
                                                         
@@ -91,7 +95,11 @@ $didscripts = false;
                                 $atts['rid'] = $atts['name'];
                             }
                             
-							include( plugin_dir_path( __FILE__ ) . $this->plugin_name . '-admin-field-' . $type . '.php' );
+                            if( file_exists( plugin_dir_path( __FILE__ ) .  $this->plugin_name . '-admin-field-'.$type.'.php' ) ) {
+                                include( plugin_dir_path( __FILE__ ) . $this->plugin_name . '-admin-field-'.$type.'.php' );
+                            } else {
+                                include( plugin_dir_path( __FILE__ ) . $this->plugin_name . '-admin-field-text.php' );                    
+                            }
 
 							?></div><?php
              
@@ -102,9 +110,10 @@ $didscripts = false;
                                 $row_id = '$(this).closest(".repeater-content").find(".rid'.$atts['id'].'")';
                                 
                                 foreach ($atts['conditional_logic'] as $l) {
+                                    $l['field'] = sprintf('%s[%s]', $setatts['id'], $l['field']);
                                     $fieldname = '[name^=\"'.$l['field'].'[\"]';
-                                    if ($l['compare'] == 'IN' || $l['compare'] == 'NOT IN') {
-                                        $scripts .= 'var arr_'.$atts['id'].' = '.json_encode($l['value']).';
+                                    if (isset($l['compare']) && ($l['compare'] == 'IN' || $l['compare'] == 'NOT IN')) {
+                                        $this->scripts .= 'var arr_'.$atts['id'].' = '.json_encode($l['value']).';
                                         ';
                                         if ($l['compare'] == 'IN') {
                                             $conditions[] = sprintf("(arr_%s.includes($(this).val()))", $atts['id'], $l['value']);
@@ -116,6 +125,9 @@ $didscripts = false;
                                             $l['compare'] = '==';
                                         }
                                         $eval = '$(this).closest(".repeater-content").find("'.$fieldname.'").val()';
+                                        if ($l['value'] === true) {
+                                            $eval = '$(this).closest(".repeater-content").find("'.$fieldname.':checked").val()';
+                                        }
                                         $conditions[] = sprintf("(%s %s '%s')", $eval, $l['compare'], $l['value']);                             
                                     }
                                 } 
@@ -129,12 +141,13 @@ $didscripts = false;
                                     }', $conditions, $row_id, $row_id);
                                     
                                     foreach ($atts['conditional_logic'] as $l) {
+                                        $l['field'] = sprintf('%s[%s]', $setatts['id'], $l['field']);
                                         $fieldname = '[name^=\"'.$l['field'].'[\"]';
                                         $l['field'] = '#'.$repeater_id.' '.$fieldname;
                                         $eval .= '$("'.$l['field'].'").change(function(){
                                             '.$eval.'
                                         });';
-                                        $scripts .= '$("'.$l['field'].'").each(function(index){
+                                        $this->scripts .= '$("'.$l['field'].'").each(function(index){
                                             '.$eval.'
                                         });
                                         ';

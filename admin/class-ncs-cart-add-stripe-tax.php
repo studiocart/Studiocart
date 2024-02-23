@@ -195,6 +195,21 @@ class NCS_Cart_Admin_Tax {
         return "";
     }
 
+    public function check_create_stripe_vat($stripe_tax_rate,$vat_rate,$countries,$country){
+        if($this->stripe){
+            try{
+                $tax_exsist = $this->stripe->taxRates->retrieve($stripe_tax_rate);
+                if(!$tax_exsist->id):
+                    return $this->create_stripe_vat($vat_rate,$countries,$country);
+                else:
+                    return $tax_exsist->id;
+                endif;
+            } catch(Exception $e) {
+                return $this->create_stripe_vat($vat_rate,$countries,$country);
+            }
+        }
+    }
+
 }
 global $NCS_Cart_Admin_Tax;
 $NCS_Cart_Admin_Tax = new NCS_Cart_Admin_Tax();

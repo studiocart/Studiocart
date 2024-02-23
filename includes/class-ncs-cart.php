@@ -105,6 +105,20 @@ class NCS_Cart
             $class_var = strtolower( end( $class_name ) );
             ${$class_var} = new $class();
         }
+        
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            $this->define_hooks__premium_only();
+            // load all pro integrations
+            foreach ( glob( plugin_dir_path( __FILE__ ) . "/integrations/pro/*.php" ) as $filename ) {
+                include $filename;
+                $classes = get_declared_classes();
+                $class = end( $classes );
+                $class_name = explode( '\\', $class );
+                $class_var = strtolower( end( $class_name ) );
+                ${$class_var} = new $class();
+            }
+        }
+        
         do_action( 'sc_before_load' );
     }
     
@@ -126,6 +140,7 @@ class NCS_Cart
      */
     private function load_dependencies()
     {
+        global  $studiocart ;
         /**
          * The class responsible for orchestrating the actions and filters of the
          * core plugin.
@@ -136,6 +151,12 @@ class NCS_Cart
          * of the plugin.
          */
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-ncs-cart-i18n.php';
+        /**
+         * The class responsible for initializing the debug logger.
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-ncs-cart-debug-logger.php';
+        global  $sc_debug_logger ;
+        $sc_debug_logger = new NCS_Cart_Debug_Logger();
         /**
          * The class responsible for defining all actions that occur in the admin area.
          */
@@ -151,11 +172,21 @@ class NCS_Cart
         /**
          * The class responsible for defining all admin product fields.
          */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-ncs-metabox-fields.php';
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-ncs-cart-metaboxes.php';
         /**
          * The class responsible for defining all admin order fields.
          */
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-ncs-cart-order-metaboxes.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-ncs-cart-upsell-metaboxes.php';
+        /**
+         * File Downloads
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/files/class-ncs-cart-files.php';
+        /**
+         * Order Items
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/order-items/class-ncs-cart-order-items.php';
         /**
          * Custom Post Types and Taxonomies
          */
@@ -169,11 +200,16 @@ class NCS_Cart
          * side of the site.
          */
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/class-ncs-cart-public.php';
+        $studiocart = new NCS_Cart_Public( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/class-ncs-cart-paypal.php';
         /**
          * The class responsible for sanitizing user input
          */
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-ncs-cart-sanitize.php';
+        /**
+         * The class responsible for stripe services
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-ncs-stripe-service.php';
         /**
          * The class responsible for admin ajax
          */
@@ -182,6 +218,58 @@ class NCS_Cart
          * The class responsible for tax
          */
         require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/class-ncs-cart-tax.php';
+        /**
+         * Class for common helper functions
+         */
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/helpers/ncs-general-functions.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/helpers/class-ncs-order-helper.php';
+        require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/helpers/class-ncs-helper.php';
+        
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            /**
+             * The class responsible for defining white label actions.
+             */
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'admin/class-ncs-cart-white-label.php';
+            /**
+             * The class responsible for quantity field
+             */
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/quantity/class-ncs-cart-quantity.php';
+            global  $sc_fs ;
+            $license = $sc_fs->_get_license();
+            
+            if ( is_object( $license ) && $license->pricing_id != 11979 ) {
+                /**
+                 * The class responsible for shipping
+                 */
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/shipping/class-ncs-cart-shipping.php';
+                /**
+                 * The class responsible for collections
+                 */
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/collections/class-ncs-cart-collections.php';
+                /**
+                 * The class responsible for collections
+                 */
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/subscription-sync/class-ncs-cart-sub-sync.php';
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-rest-customers.php';
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-rest-products.php';
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-rest-orders.php';
+                require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/ncs-rest/class-ncs-rest-subscriptions.php';
+            }
+            
+            /*
+             * Gutenberg product shortcode
+             */
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/vendor/gutenberg/index.php';
+            /*
+             * Divi custom module
+             */
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'includes/vendor/divi/studiocart-order-form.php';
+            /**
+             * The class responsible for defining all API actions
+             */
+            require_once plugin_dir_path( dirname( __FILE__ ) ) . 'api/class-ncs-cart-api.php';
+        }
+        
         $this->loader = new NCS_Cart_Loader();
         $this->sanitizer = new NCS_Cart_Sanitize();
         $this->stripe_product = new NCS_Cart_Product_Admin();
@@ -211,8 +299,15 @@ class NCS_Cart
      */
     private function define_admin_hooks()
     {
+        global 
+            $plugin_settings,
+            $sc_product_fields,
+            $studiocart,
+            $scFiles
+        ;
         $plugin_admin = new NCS_Cart_Admin( $this->get_plugin_name(), $this->get_plugin_title(), $this->get_version() );
-        $product_fields = new NCS_Cart_Product_Metaboxes( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
+        $sc_product_fields = new NCS_Cart_Product_Metaboxes( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
+        $upsell_fields = new NCS_Cart_Upsell_Metaboxes( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
         $order_fields = new NCS_Cart_Order_Metaboxes( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
         $order_admin = new NCS_Cart_Order_Admin( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
         $plugin_settings = new NCS_Cart_Admin_Settings( $this->get_plugin_name(), $this->get_plugin_title(), $this->get_version() );
@@ -220,6 +315,7 @@ class NCS_Cart
         $plugin_contacts_page = new NCS_Cart_Contacts_page( $this->get_plugin_name(), $this->get_plugin_title(), $this->get_version() );
         $plugin_customer = new NCS_Cart_Customer_Reports( $this->get_plugin_name(), $this->get_plugin_title(), $this->get_version() );
         $plugin_post_types = new NCS_Cart_Post_Types();
+        $order_items = new NCS_Cart_Order_Items();
         $plugin_admin_ajax = new NCS_Cart_Admin_Ajax( $this->get_plugin_name(), $this->get_plugin_title(), $this->get_version() );
         $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
         $this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
@@ -242,16 +338,49 @@ class NCS_Cart
             'ncs_ajax_action',
             999
         );
+        // Files
+        
+        if ( !sc_fs()->can_use_premium_code() ) {
+            $scFiles = new NCS_Cart_Files();
+            $this->loader->add_action(
+                'admin_init',
+                $scFiles,
+                'init',
+                99
+            );
+        }
+        
+        // Order Items
+        $this->loader->add_action(
+            'admin_init',
+            $order_items,
+            'init',
+            99
+        );
         // Product Metaboxes
         $this->loader->add_action(
             'admin_init',
-            $product_fields,
+            $sc_product_fields,
             'add_metaboxes',
             99
         );
         $this->loader->add_action(
             'save_post_sc_product',
-            $product_fields,
+            $sc_product_fields,
+            'validate_meta',
+            10,
+            2
+        );
+        // Upsell Flow Metaboxes
+        $this->loader->add_action(
+            'admin_init',
+            $upsell_fields,
+            'add_metaboxes',
+            99
+        );
+        $this->loader->add_action(
+            'save_post_sc_us_path',
+            $upsell_fields,
             'validate_meta',
             10,
             2
@@ -264,7 +393,7 @@ class NCS_Cart
             99
         );
         $this->loader->add_action(
-            'save_post_sc_order',
+            'save_post_sc_subscription',
             $order_fields,
             'validate_meta',
             10,
@@ -286,6 +415,8 @@ class NCS_Cart
         $this->loader->add_action( 'admin_menu', $plugin_reports, 'setup_plugin_options_menu' );
         $this->loader->add_action( 'admin_menu', $plugin_customer, 'setup_plugin_options_menu' );
         $this->loader->add_action( 'admin_menu', $plugin_contacts_page, 'setup_plugin_options_menu' );
+        // Register Importer
+        $this->loader->add_action( 'admin_init', $plugin_admin, 'register_sc_importers' );
         // Order Custom Tax
         $this->loader->add_filter(
             'pre_update_option__sc_tax_rates',
@@ -294,6 +425,21 @@ class NCS_Cart
             10,
             3
         );
+        
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            //Plugin White Label Settings
+            $plugin_white_label = new NCS_Cart_White_Label(
+                $this->plugin_name,
+                $this->plugin_title,
+                $this->version,
+                $studiocart
+            );
+            add_action( 'admin_menu', [ $plugin_white_label, 'setup_plugin_options_menu' ], 9999 );
+            add_action( 'admin_init', [ $plugin_white_label, 'register_sections' ] );
+            add_action( 'admin_init', [ $plugin_white_label, 'register_fields' ] );
+            add_action( 'admin_menu', [ $plugin_white_label, 'setup_plugin_options_menu' ] );
+        }
+        
         //Plugin Admin Functionality
         //GDPR
         $this->loader->add_action(
@@ -464,6 +610,26 @@ class NCS_Cart
         );
         $this->loader->add_filter( 'manage_edit-sc_order_sortable_columns', $plugin_admin, 'sc_order_sortable_columns' );
         $this->loader->add_filter( 'manage_edit-sc_subscription_sortable_columns', $plugin_admin, 'sc_order_sortable_columns' );
+        $this->loader->add_action( 'show_user_profile', $plugin_admin, 'show_user_profile_address_fields' );
+        $this->loader->add_action( 'edit_user_profile', $plugin_admin, 'show_user_profile_address_fields' );
+        $this->loader->add_action( 'personal_options_update', $plugin_admin, 'update_profile_address_fields' );
+        $this->loader->add_action( 'edit_user_profile_update', $plugin_admin, 'update_profile_address_fields' );
+        $this->loader->add_filter( 'bulk_actions-edit-sc_order', $plugin_admin, 'sc_order_bulk_action' );
+        $this->loader->add_filter( 'bulk_actions-edit-sc_subscription', $plugin_admin, 'sc_subscription_bulk_action' );
+        $this->loader->add_filter(
+            'handle_bulk_actions-edit-sc_order',
+            $plugin_admin,
+            'sc_bulk_action_handler',
+            10,
+            3
+        );
+        $this->loader->add_filter(
+            'handle_bulk_actions-edit-sc_subscription',
+            $plugin_admin,
+            'sc_bulk_action_handler',
+            10,
+            3
+        );
         $this->loader->add_action( 'pre_get_posts', $plugin_admin, 'sc_order_sortable_columns_orderby' );
         $this->loader->add_action( 'load-edit.php', $plugin_admin, 'sc_load_edit_php_action' );
         $this->loader->add_action(
@@ -480,6 +646,7 @@ class NCS_Cart
         //refund
         $this->loader->add_action( 'wp_ajax_sc_product_plans', $plugin_admin, 'product_plan_options_html' );
         $this->loader->add_action( 'wp_ajax_sc_fresh_product', $plugin_admin, 'clean_product_meta_duplicate' );
+        $this->loader->add_action( 'wp_ajax_sc_send_email_test', $plugin_admin, 'send_email_test' );
         $this->loader->add_action( 'wp_ajax_sc_mailchimp_groups_tags', $plugin_admin, 'sc_mailchimp_groups_tags' );
         $this->loader->add_action( 'wp_ajax_sc_unsubscribe_customer', $plugin_admin, 'sc_unsubscribe_customer' );
         //unsubscribe stripe
@@ -501,14 +668,17 @@ class NCS_Cart
     private function define_public_hooks()
     {
         global  $studiocart ;
-        $studiocart = $plugin_public = new NCS_Cart_Public( $this->get_plugin_name(), $this->get_version(), $this->get_prefix() );
+        $plugin_public = $studiocart;
         $this->loader->add_filter( 'single_template', $plugin_public, 'sc_product_template' );
+        $this->loader->add_filter( 'wp', $plugin_public, 'sc_email_preview_template' );
+        $this->loader->add_filter( 'admin_init', $plugin_public, 'sc_email_preview_template' );
         $this->loader->add_filter( 'query_vars', $plugin_public, 'sc_query_vars' );
         $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_redirect' );
+        //$this->loader->add_filter( 'studiocart_post_purchase_url', $plugin_public, 'maybe_change_thank_you_page', 10, 3);
         $this->loader->add_filter(
-            'studiocart_post_purchase_url',
+            'studiocart_checkout_complete',
             $plugin_public,
-            'maybe_change_thank_you_page',
+            'conditional_order_confirmations',
             10,
             3
         );
@@ -558,8 +728,6 @@ class NCS_Cart
         $this->loader->add_filter( 'query_vars', $plugin_public, 'sc_api_query_vars' );
         $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_stripe_webhook' );
         $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_customer_csv_export' );
-        $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_subscription_renew_reminder' );
-        $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_invoices_download' );
         $this->loader->add_action( 'wp_ajax_save_order_to_db', $plugin_public, 'save_order_to_db' );
         $this->loader->add_action( 'wp_ajax_nopriv_save_order_to_db', $plugin_public, 'save_order_to_db' );
         $this->loader->add_action( 'wp_ajax_update_stripe_order_status', $plugin_public, 'update_stripe_order_status' );
@@ -574,6 +742,28 @@ class NCS_Cart
         $this->loader->add_action( 'wp_ajax_nopriv_sc_set_form_views', $plugin_public, 'sc_set_form_views' );
         $this->loader->add_action( 'wp_ajax_sc_check_vat_applicable', $plugin_public, 'sc_check_vat_applicable' );
         $this->loader->add_action( 'wp_ajax_nopriv_sc_check_vat_applicable', $plugin_public, 'sc_check_vat_applicable' );
+        /** Update and display strpe card in my-account */
+        $this->loader->add_action( 'wp_ajax_update_stripe_payment_method', $plugin_public, 'ncs_update_stripe_card' );
+        $this->loader->add_action(
+            'sc_show_stripe_payment_method',
+            $plugin_public,
+            'show_stripe_payment_method',
+            10,
+            1
+        );
+        
+        if ( sc_fs()->is__premium_only() && sc_fs()->can_use_premium_code() ) {
+            $this->loader->add_action( 'template_redirect', $plugin_public, 'sc_invoices_download__premium_only' );
+            $this->loader->add_action( 'wp_ajax_sc_process_upsell', $plugin_public, 'sc_process_upsell__premium_only' );
+            $this->loader->add_action( 'wp_ajax_nopriv_sc_process_upsell', $plugin_public, 'sc_process_upsell__premium_only' );
+            $this->loader->add_action( 'wp_ajax_sc_validate_coupon', $plugin_public, 'sc_validate_coupon__premium_only' );
+            $this->loader->add_action( 'wp_ajax_nopriv_sc_validate_coupon', $plugin_public, 'sc_validate_coupon__premium_only' );
+            $this->loader->add_action( 'wp_ajax_sc_capture_lead', $plugin_public, 'sc_capture_lead__premium_only' );
+            $this->loader->add_action( 'wp_ajax_nopriv_sc_capture_lead', $plugin_public, 'sc_capture_lead__premium_only' );
+            $this->loader->add_action( 'wp_ajax_sc_check_username', $plugin_public, 'sc_check_username__premium_only' );
+            $this->loader->add_action( 'wp_ajax_nopriv_sc_check_username', $plugin_public, 'sc_check_username__premium_only' );
+        }
+    
     }
     
     /**
